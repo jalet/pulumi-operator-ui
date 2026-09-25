@@ -6,10 +6,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr/funcr"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -155,8 +157,13 @@ func startManager(t *testing.T, namespaces ...string) *memWriter {
 
 func startManagerWith(t *testing.T, w *memWriter, namespaces ...string) *memWriter {
 	t.Helper()
-	mgr, err := NewManager(_cfg, Options{Namespaces: namespaces, MetricsAddr: "0", Writer: w,
-		Now: time.Now, skipNameValidation: true})
+	return startManagerOpts(t, w, Options{Namespaces: namespaces})
+}
+
+func startManagerOpts(t *testing.T, w *memWriter, o Options) *memWriter {
+	t.Helper()
+	o.MetricsAddr, o.Writer, o.Now, o.skipNameValidation = "0", w, time.Now, true
+	mgr, err := NewManager(_cfg, o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,4 +380,40 @@ func TestStackDeletedWhileDownIsSwept(t *testing.T) {
 	if w.deletions(ns+"/app") != 0 {
 		t.Fatal("live stack was swept")
 	}
+}
+
+type logLines struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (l *logLines) add(prefix, args string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = append(l.lines, prefix+" "+args)
+}
+
+func (l *logLines) contains(subs ...string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, line := range l.lines {
+		all := true
+		for _, s := range subs {
+			all = all && strings.Contains(line, s)
+		}
+		if all {
+			return true
+		}
+	}
+	return false
+}
+
+func TestSkipIsLogged(t *testing.T) {
+	ns := newNamespace(t, "skiplog")
+	lines := &logLines{}
+	startManagerOpts(t, newMemWriter(), Options{Logger: funcr.New(lines.add, funcr.Options{})})
+	createUpdate(t, ns, nil)
+	eventually(t, "skip log line", func() bool {
+		return lines.contains("skipped", "no_stack_owner", "app-u1", ns)
+	})
 }

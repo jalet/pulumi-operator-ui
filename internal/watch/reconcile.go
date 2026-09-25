@@ -41,7 +41,7 @@ func (r *stackReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	run, ok, err := record.RunFromStackLastUpdate(obj, r.now())
 	switch {
 	case err != nil && record.SkipReason(err) != "":
-		_skipped.WithLabelValues(record.SkipReason(err)).Inc()
+		skip(ctx, err, "Stack", req)
 		return ctrl.Result{}, nil
 	case err != nil:
 		return ctrl.Result{}, fmt.Errorf("map stack last update: %w", err)
@@ -67,7 +67,7 @@ func (r *updateReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 	stackName, err := record.StackOwner(obj)
 	if err != nil {
-		_skipped.WithLabelValues(record.SkipReason(err)).Inc()
+		skip(ctx, err, "Update", req)
 		return ctrl.Result{}, nil
 	}
 	commit, source, err := r.commitFor(ctx, req.Namespace, stackName, req.Name)
@@ -76,8 +76,8 @@ func (r *updateReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 	run, err := record.RunFromUpdate(obj, commit, source, r.now())
 	if err != nil {
-		if reason := record.SkipReason(err); reason != "" {
-			_skipped.WithLabelValues(reason).Inc()
+		if record.SkipReason(err) != "" {
+			skip(ctx, err, "Update", req)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("map update: %w", err)
@@ -97,4 +97,16 @@ func (r *updateReconciler) commitFor(ctx context.Context, ns, stackName, updateN
 	}
 	commit, source := record.CommitFor(stack, updateName)
 	return commit, source, nil
+}
+
+// skip counts and logs an object that is valid Kubernetes data but not recorded, so an
+// operator who sees pou_record_skipped_total rise can find which object it was.
+func skip(ctx context.Context, err error, kind string, req ctrl.Request) {
+	reason := record.SkipReason(err)
+	if reason == "" {
+		panic("invariant violated: skip called with a non-skippable error")
+	}
+	_skipped.WithLabelValues(reason).Inc()
+	ctrl.LoggerFrom(ctx).Info("skipped", "reason", reason, "kind", kind,
+		"object", req.Namespace+"/"+req.Name, "detail", err.Error())
 }

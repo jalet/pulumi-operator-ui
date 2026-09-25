@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -46,6 +47,7 @@ type Options struct {
 	MetricsAddr string   // "0" disables the metrics listener
 	Writer      Writer
 	Now         func() time.Time
+	Logger      logr.Logger // zero value = the global controller-runtime logger
 
 	// skipNameValidation lets tests start several managers in one process.
 	skipNameValidation bool
@@ -75,6 +77,7 @@ func NewManager(cfg *rest.Config, o Options) (manager.Manager, error) {
 		HealthProbeBindAddress: "0", // probes are served by internal/web
 		LeaderElection:         false,
 		Controller:             config.Controller{SkipNameValidation: &o.skipNameValidation},
+		Logger:                 o.Logger,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("new manager: %w", err)
