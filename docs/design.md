@@ -241,8 +241,7 @@ Operator baseline prefers a customer-managed key for state buckets; moving to on
 0. Spike (throwaway): answer the open question above.
 1. Scaffold, watch, record, store, auth and a status-only UI; the chart, CI and the example
    deployment. This slice is usable on its own.
-2. Log capture and parsing (done; see
-   `docs/superpowers/specs/2026-09-25-log-capture-design.md`). The raw log is not stored:
+2. Log capture and parsing (done). The raw log is not stored:
    `run_changes` rows with `source = 'log'` hold counts and the changed resources.
 3. Opt-in S3 history. For example, enabling it is a separate change: the IAM user, the AWS
    ExternalSecret and `s3History.enabled: true`.
