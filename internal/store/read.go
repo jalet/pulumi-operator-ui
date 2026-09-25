@@ -92,10 +92,15 @@ func (s *Store) GetStack(ctx context.Context, namespace, name string) (StackSumm
 	return st, nil
 }
 
-// ListRuns returns one page of a stack's runs, newest first. The next cursor is nil on
-// the last page.
-func (s *Store) ListRuns(ctx context.Context, namespace, name string, before *Cursor,
-	limit int) ([]Run, *Cursor, error) {
+// RunFilter narrows a stack's timeline.
+type RunFilter struct {
+	Previews bool // include preview runs; false shows only up, refresh and destroy
+}
+
+// ListRuns returns one page of a stack's runs matching f, newest first. The next cursor
+// is nil on the last page.
+func (s *Store) ListRuns(ctx context.Context, namespace, name string, f RunFilter,
+	before *Cursor, limit int) ([]Run, *Cursor, error) {
 	assert(limit > 0 && limit <= RunsPageMax, "runs limit")
 	var at *time.Time
 	var id int64
@@ -105,8 +110,9 @@ func (s *Store) ListRuns(ctx context.Context, namespace, name string, before *Cu
 	rows, err := s.pool.Query(ctx, _runSelect+`
 		WHERE namespace = $1 AND stack_name = $2
 		  AND ($3::timestamptz IS NULL OR (COALESCE(started_at, observed_at), id) < ($3, $4))
+		  AND ($6 OR type <> 'preview')
 		ORDER BY COALESCE(started_at, observed_at) DESC, id DESC
-		LIMIT $5`, namespace, name, at, id, limit+1)
+		LIMIT $5`, namespace, name, at, id, limit+1, f.Previews)
 	if err != nil {
 		return nil, nil, fmt.Errorf("list runs: %w", err)
 	}

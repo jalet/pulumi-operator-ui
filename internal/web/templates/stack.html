@@ -4,15 +4,16 @@
 <p><a href="/">Stacks</a></p>
 <h1><span class="muted">{{.Stack.Namespace}}/</span>{{.Stack.Name}}</h1>
 <p>{{template "stack-status" .Stack}} last deployed commit {{if .Stack.LastCommit}}<code class="commit">{{shortCommit .Stack.LastCommit}}</code>{{else}}<span class="muted">none</span>{{end}}</p>
+<p>{{if .Previews}}<a href="/stacks/{{.Stack.Namespace}}/{{.Stack.Name}}">Hide previews</a>{{else}}<a href="/stacks/{{.Stack.Namespace}}/{{.Stack.Name}}?previews=1">Show previews</a>{{end}}</p>
 <table class="grid">
 <thead><tr><th>Run</th><th>Type</th><th>State</th><th>Commit</th><th>Started</th><th>Duration</th></tr></thead>
 {{template "run-rows" .}}
 </table>
-{{if .Next}}<p><a href="/stacks/{{.Stack.Namespace}}/{{.Stack.Name}}?before={{cursor .Next}}">Older runs</a></p>{{end}}
+{{if .Next}}<p><a href="/stacks/{{.Stack.Namespace}}/{{.Stack.Name}}?{{if .Previews}}previews=1&amp;before={{else}}before={{end}}{{cursor .Next}}">Older runs</a></p>{{end}}
 {{end}}
 
-{{define "run-rows"}}<tbody{{if .Live}} hx-get="/fragments/stacks/{{.Stack.Namespace}}/{{.Stack.Name}}/runs" hx-trigger="sse:{{stackEvent .Stack.Namespace .Stack.Name}}, sse:resync" hx-swap="outerHTML"{{end}}>
-{{range .Runs}}{{template "run-row" .}}{{else}}<tr><td colspan="6" class="muted">No runs recorded.</td></tr>{{end}}
+{{define "run-rows"}}<tbody{{if .Live}} hx-get="/fragments/stacks/{{.Stack.Namespace}}/{{.Stack.Name}}/runs{{if .Previews}}?previews=1{{end}}" hx-trigger="sse:{{stackEvent .Stack.Namespace .Stack.Name}}, sse:resync" hx-swap="outerHTML"{{end}}>
+{{range .Runs}}{{template "run-row" .}}{{else}}<tr><td colspan="6" class="muted">{{if $.Previews}}No runs recorded.{{else}}No up, refresh or destroy runs recorded. <a href="/stacks/{{$.Stack.Namespace}}/{{$.Stack.Name}}?previews=1">Show previews</a>{{end}}</td></tr>{{end}}
 </tbody>{{end}}
 
 {{define "run-row"}}<tr id="run-{{.ID}}" hx-get="/fragments/runs/{{.ID}}/row" hx-trigger="sse:run-{{.ID}}" hx-swap="outerHTML">

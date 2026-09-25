@@ -29,8 +29,8 @@ const (
 type Reader interface {
 	ListStacks(ctx context.Context) ([]store.StackSummary, error)
 	GetStack(ctx context.Context, namespace, name string) (store.StackSummary, error)
-	ListRuns(ctx context.Context, namespace, name string, before *store.Cursor,
-		limit int) ([]store.Run, *store.Cursor, error)
+	ListRuns(ctx context.Context, namespace, name string, f store.RunFilter,
+		before *store.Cursor, limit int) ([]store.Run, *store.Cursor, error)
 	GetRun(ctx context.Context, id int64) (store.Run, error)
 	Ping(ctx context.Context) error
 }
@@ -57,10 +57,11 @@ type server struct {
 }
 
 type stackPage struct {
-	Stack store.StackSummary
-	Runs  []store.Run
-	Next  *store.Cursor
-	Live  bool // first page only: older pages do not auto-refresh
+	Stack    store.StackSummary
+	Runs     []store.Run
+	Next     *store.Cursor
+	Live     bool // first page only: older pages do not auto-refresh
+	Previews bool // previews shown; hidden by default because PKO previews hourly
 }
 
 // New returns the application handler.
@@ -184,7 +185,8 @@ func (s *server) stackPage(w http.ResponseWriter, r *http.Request) {
 		}
 		before = c
 	}
-	page, err := s.loadStackPage(r.Context(), r.PathValue("ns"), r.PathValue("name"), before)
+	page, err := s.loadStackPage(r.Context(), r.PathValue("ns"), r.PathValue("name"), before,
+		showPreviews(r))
 	if err != nil {
 		s.storeError(w, err)
 		return
@@ -193,7 +195,8 @@ func (s *server) stackPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) stackRuns(w http.ResponseWriter, r *http.Request) {
-	page, err := s.loadStackPage(r.Context(), r.PathValue("ns"), r.PathValue("name"), nil)
+	page, err := s.loadStackPage(r.Context(), r.PathValue("ns"), r.PathValue("name"), nil,
+		showPreviews(r))
 	if err != nil {
 		s.storeError(w, err)
 		return
@@ -201,18 +204,22 @@ func (s *server) stackRuns(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "stack", "run-rows", page, http.StatusOK)
 }
 
-func (s *server) loadStackPage(ctx context.Context, ns, name string, before *store.Cursor) (
-	stackPage, error) {
+func (s *server) loadStackPage(ctx context.Context, ns, name string, before *store.Cursor,
+	previews bool) (stackPage, error) {
 	st, err := s.store.GetStack(ctx, ns, name)
 	if err != nil {
 		return stackPage{}, err
 	}
-	runs, next, err := s.store.ListRuns(ctx, ns, name, before, runsPageSize)
+	runs, next, err := s.store.ListRuns(ctx, ns, name, store.RunFilter{Previews: previews},
+		before, runsPageSize)
 	if err != nil {
 		return stackPage{}, err
 	}
-	return stackPage{Stack: st, Runs: runs, Next: next, Live: before == nil}, nil
+	return stackPage{Stack: st, Runs: runs, Next: next, Live: before == nil,
+		Previews: previews}, nil
 }
+
+func showPreviews(r *http.Request) bool { return r.URL.Query().Get("previews") == "1" }
 
 func (s *server) runPage(w http.ResponseWriter, r *http.Request) {
 	s.withRun(w, r, func(run store.Run) { s.render(w, "run", "layout", run, http.StatusOK) })

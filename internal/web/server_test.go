@@ -27,6 +27,7 @@ type fakeReader struct {
 	next    *store.Cursor
 	pingErr error
 	gotCur  *store.Cursor
+	gotF    *store.RunFilter
 }
 
 func (f *fakeReader) ListStacks(context.Context) ([]store.StackSummary, error) {
@@ -42,9 +43,9 @@ func (f *fakeReader) GetStack(_ context.Context, ns, name string) (store.StackSu
 	return store.StackSummary{}, store.ErrNotFound
 }
 
-func (f *fakeReader) ListRuns(_ context.Context, _, _ string, before *store.Cursor,
-	_ int) ([]store.Run, *store.Cursor, error) {
-	f.gotCur = before
+func (f *fakeReader) ListRuns(_ context.Context, _, _ string, rf store.RunFilter,
+	before *store.Cursor, _ int) ([]store.Run, *store.Cursor, error) {
+	f.gotCur, f.gotF = before, &rf
 	return f.runs, f.next, nil
 }
 
@@ -325,5 +326,70 @@ func TestStaticHeaders(t *testing.T) {
 	}
 	if resp, _ := get(t, srv, "/"); resp.Header.Get("Cache-Control") != "no-store" {
 		t.Errorf("page Cache-Control = %q", resp.Header.Get("Cache-Control"))
+	}
+}
+
+func TestStackPageHidesPreviewsByDefault(t *testing.T) {
+	r := sampleReader()
+	r.next = &store.Cursor{At: time.Unix(0, 5), ID: 3}
+	srv := newServer(t, r, nil)
+	_, body := get(t, srv, "/stacks/ns/app")
+	if r.gotF == nil || r.gotF.Previews {
+		t.Fatalf("filter = %+v, want previews hidden", r.gotF)
+	}
+	for _, want := range []string{
+		`<a href="/stacks/ns/app?previews=1">Show previews</a>`,
+		`hx-get="/fragments/stacks/ns/app/runs"`,
+		`href="/stacks/ns/app?before=5.3"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body lacks %s", want)
+		}
+	}
+}
+
+func TestStackPageShowsPreviewsWhenAsked(t *testing.T) {
+	r := sampleReader()
+	r.next = &store.Cursor{At: time.Unix(0, 5), ID: 3}
+	srv := newServer(t, r, nil)
+	_, body := get(t, srv, "/stacks/ns/app?previews=1")
+	if r.gotF == nil || !r.gotF.Previews {
+		t.Fatalf("filter = %+v, want previews shown", r.gotF)
+	}
+	for _, want := range []string{
+		`<a href="/stacks/ns/app">Hide previews</a>`,
+		`hx-get="/fragments/stacks/ns/app/runs?previews=1"`,
+		`href="/stacks/ns/app?previews=1&amp;before=5.3"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body lacks %s", want)
+		}
+	}
+}
+
+func TestRunsFragmentKeepsPreviewChoice(t *testing.T) {
+	r := sampleReader()
+	srv := newServer(t, r, nil)
+	_, body := get(t, srv, "/fragments/stacks/ns/app/runs?previews=1")
+	if r.gotF == nil || !r.gotF.Previews {
+		t.Fatalf("filter = %+v, want previews shown", r.gotF)
+	}
+	if !strings.Contains(body, `hx-get="/fragments/stacks/ns/app/runs?previews=1"`) {
+		t.Error("refreshed fragment dropped the previews choice")
+	}
+	get(t, srv, "/fragments/stacks/ns/app/runs")
+	if r.gotF.Previews {
+		t.Fatal("default fragment shows previews")
+	}
+}
+
+func TestEmptyTimelineOffersPreviews(t *testing.T) {
+	r := sampleReader()
+	r.runs = nil
+	srv := newServer(t, r, nil)
+	_, body := get(t, srv, "/stacks/ns/app")
+	if !strings.Contains(body, "No up, refresh or destroy runs recorded.") ||
+		!strings.Contains(body, `href="/stacks/ns/app?previews=1"`) {
+		t.Fatalf("empty state missing:\n%s", body)
 	}
 }

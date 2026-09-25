@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -92,7 +93,7 @@ func TestListRunsKeyset(t *testing.T) {
 	var got []string
 	var cursor *Cursor
 	for page := 1; page <= 10; page++ {
-		runs, next, err := s.ListRuns(ctx, "ns", "s", cursor, 2)
+		runs, next, err := s.ListRuns(ctx, "ns", "s", RunFilter{Previews: true}, cursor, 2)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -114,11 +115,11 @@ func TestListRunsSameTimeTieBreaksOnID(t *testing.T) {
 	for _, name := range []string{"a", "b", "c"} {
 		mustUpsert(t, s, runAt("ns", "s", name, RunTypeUp, _t0))
 	}
-	first, next, err := s.ListRuns(t.Context(), "ns", "s", nil, 2)
+	first, next, err := s.ListRuns(t.Context(), "ns", "s", RunFilter{Previews: true}, nil, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rest, last, err := s.ListRuns(t.Context(), "ns", "s", next, 2)
+	rest, last, err := s.ListRuns(t.Context(), "ns", "s", RunFilter{Previews: true}, next, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,5 +169,40 @@ func TestInsertAuthEventCapsFields(t *testing.T) {
 	}
 	if len(detail) > authDetailBytesMax || !strings.HasPrefix(detail, "é") {
 		t.Fatalf("detail bytes = %d", len(detail))
+	}
+}
+
+func TestListRunsHidesPreviewsUnlessAsked(t *testing.T) {
+	s, _ := newTestStore(t)
+	types := []RunType{RunTypePreview, RunTypeUp, RunTypePreview, RunTypeRefresh, RunTypePreview,
+		RunTypeDestroy, RunTypeUp}
+	for i, typ := range types {
+		mustUpsert(t, s, runAt("ns", "s", fmt.Sprintf("r%d", i), typ, _t0.Add(time.Duration(i)*time.Minute)))
+	}
+	collect := func(f RunFilter) []string {
+		var got []string
+		var cursor *Cursor
+		for page := 1; page <= 10; page++ {
+			runs, next, err := s.ListRuns(t.Context(), "ns", "s", f, cursor, 2)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, r := range runs {
+				got = append(got, r.UpdateName)
+			}
+			if next == nil {
+				return got
+			}
+			cursor = next
+		}
+		t.Fatal("more than 10 pages")
+		return nil
+	}
+	if diff := cmp.Diff([]string{"r6", "r5", "r3", "r1"}, collect(RunFilter{})); diff != "" {
+		t.Errorf("default (-want +got):\n%s", diff)
+	}
+	all := []string{"r6", "r5", "r4", "r3", "r2", "r1", "r0"}
+	if diff := cmp.Diff(all, collect(RunFilter{Previews: true})); diff != "" {
+		t.Errorf("with previews (-want +got):\n%s", diff)
 	}
 }
