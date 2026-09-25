@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/prometheus/client_golang/prometheus"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
@@ -100,17 +101,57 @@ func (s *Store) InsertHistory(ctx context.Context, e HistoryEntry, seenAt time.T
 	if err != nil {
 		panic("invariant violated: marshal counts: " + err.Error())
 	}
-	tag, err := s.pool.Exec(ctx, `
+	// An existing key only has its empty origin, message and repo filled: a re-read after
+	// the cursor reset enriches old rows but never changes their link, times or counts.
+	var inserted bool
+	var runID *int64
+	err = s.pool.QueryRow(ctx, `
 		INSERT INTO s3_history (key, bucket, namespace, stack_name, type, state, started_at,
-		                        ended_at, commit, counts, seen_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		ON CONFLICT (key) DO NOTHING`,
+		                        ended_at, commit, counts, seen_at, exec_kind, exec_agent,
+		                        message, vcs_repo)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		ON CONFLICT (key) DO UPDATE SET
+		    exec_kind  = CASE WHEN s3_history.exec_kind = ''  THEN EXCLUDED.exec_kind
+		                      ELSE s3_history.exec_kind END,
+		    exec_agent = CASE WHEN s3_history.exec_agent = '' THEN EXCLUDED.exec_agent
+		                      ELSE s3_history.exec_agent END,
+		    message    = CASE WHEN s3_history.message = ''    THEN EXCLUDED.message
+		                      ELSE s3_history.message END,
+		    vcs_repo   = CASE WHEN s3_history.vcs_repo = ''   THEN EXCLUDED.vcs_repo
+		                      ELSE s3_history.vcs_repo END
+		RETURNING (xmax = 0), run_id`,
 		e.Key, e.Bucket, e.Namespace, e.StackName, e.Type, e.State, e.StartedAt, e.EndedAt,
-		e.Commit, counts, seenAt)
+		e.Commit, counts, seenAt, e.ExecKind, e.ExecAgent, e.Message, e.VCSRepo).
+		Scan(&inserted, &runID)
 	if err != nil {
 		return false, fmt.Errorf("insert history %s: %w", e.Key, err)
 	}
-	return tag.RowsAffected() == 1, nil
+	if !inserted && runID != nil {
+		if err := enrichRun(ctx, s.pool, *runID, e); err != nil {
+			return false, err
+		}
+	}
+	return inserted, nil
+}
+
+// dbExec is satisfied by both the pool and a transaction.
+type dbExec interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+// enrichRun copies origin and repository from a history entry onto its run, filling only
+// empty values; the commit subject becomes the title only for runs without an Update.
+func enrichRun(ctx context.Context, db dbExec, runID int64, e HistoryEntry) error {
+	_, err := db.Exec(ctx, `UPDATE runs SET
+		    exec_kind  = CASE WHEN exec_kind = ''  THEN $2 ELSE exec_kind END,
+		    exec_agent = CASE WHEN exec_agent = '' THEN $3 ELSE exec_agent END,
+		    vcs_repo   = CASE WHEN vcs_repo = ''   THEN $4 ELSE vcs_repo END,
+		    title      = CASE WHEN uid IS NULL AND title = '' THEN $5 ELSE title END
+		WHERE id = $1`, runID, e.ExecKind, e.ExecAgent, e.VCSRepo, e.Message)
+	if err != nil {
+		return fmt.Errorf("enrich run %d: %w", runID, err)
+	}
+	return nil
 }
 
 const (
@@ -151,7 +192,7 @@ func (s *Store) LinkHistory(ctx context.Context, now time.Time) (LinkResult, err
 	var res LinkResult
 	rows, err := s.pool.Query(ctx, `
 		SELECT key, bucket, namespace, stack_name, type, state, started_at, ended_at, commit, counts,
-		       seen_at
+		       seen_at, exec_kind, exec_agent, message, vcs_repo
 		FROM s3_history WHERE link_state = 'pending' ORDER BY ended_at, key LIMIT $1`,
 		linkBatchRowsMax)
 	if err != nil {
@@ -261,6 +302,9 @@ func linkRun(ctx context.Context, tx pgx.Tx, e HistoryEntry, runID int64, src Co
 		ended_at = COALESCE(ended_at, $3) WHERE id = $1`, runID, e.StartedAt, e.EndedAt); err != nil {
 		return fmt.Errorf("fill run times: %w", err)
 	}
+	if err := enrichRun(ctx, tx, runID, e); err != nil {
+		return err
+	}
 	if e.Commit != "" && (src == "" || src == CommitSourceStack) {
 		if _, err := tx.Exec(ctx, `UPDATE runs SET commit = $2, commit_source = 'history'
 			WHERE id = $1`, runID, e.Commit); err != nil {
@@ -288,6 +332,9 @@ func importRun(ctx context.Context, tx pgx.Tx, e HistoryEntry) (int64, error) {
 		return 0, fmt.Errorf("import run: %w", err)
 	}
 	if err := insertChanges(ctx, tx, id, e.Counts); err != nil {
+		return 0, err
+	}
+	if err := enrichRun(ctx, tx, id, e); err != nil {
 		return 0, err
 	}
 	return id, setLinkState(ctx, tx, e.Key, "imported", id)
@@ -320,6 +367,7 @@ func setLinkState(ctx context.Context, tx pgx.Tx, key, state string, runID int64
 func scanHistoryEntry(row pgx.CollectableRow) (HistoryEntry, error) {
 	var e HistoryEntry
 	err := row.Scan(&e.Key, &e.Bucket, &e.Namespace, &e.StackName, &e.Type, &e.State,
-		&e.StartedAt, &e.EndedAt, &e.Commit, &e.Counts, &e.SeenAt)
+		&e.StartedAt, &e.EndedAt, &e.Commit, &e.Counts, &e.SeenAt, &e.ExecKind, &e.ExecAgent,
+		&e.Message, &e.VCSRepo)
 	return e, err
 }
