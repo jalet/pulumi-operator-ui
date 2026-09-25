@@ -35,6 +35,8 @@ func parsePages(now func() time.Time) map[string]*template.Template {
 		"age":         func(t any) string { return age(now(), t) },
 		"iso":         func(t any) string { return timeOf(t).UTC().Format(time.RFC3339) },
 		"shortCommit": shortCommit,
+		"health":      health,
+		"stateBadge":  stateBadge,
 		"duration":    duration,
 		"stackEvent":  events.StackEventName,
 		"cursor":      formatCursor,
