@@ -48,7 +48,7 @@ func (r *stackReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	case !ok:
 		return ctrl.Result{}, nil
 	}
-	return ctrl.Result{}, r.w.InsertRunIfAbsent(ctx, run)
+	return ctrl.Result{}, r.w.BackfillRun(ctx, run)
 }
 
 type updateReconciler struct {

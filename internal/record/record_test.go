@@ -183,7 +183,7 @@ func TestRunFromStackLastUpdate(t *testing.T) {
 		t.Fatalf("ok=%v err=%v", ok, err)
 	}
 	want := store.Run{Namespace: "ns", UpdateName: "app-u0", StackName: "app",
-		Type: store.RunTypeUp, Commit: "aaa", CommitSource: store.CommitSourceStack,
+		Type: store.RunTypeUp, Commit: "aaa", CommitSource: store.CommitSourceUpdate,
 		State: store.RunStateSucceeded, Message: "done", ObservedAt: _now}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("mismatch (-want +got):\n%s", diff)

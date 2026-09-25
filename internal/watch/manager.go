@@ -36,7 +36,7 @@ type Writer interface {
 	UpsertStack(ctx context.Context, s store.Stack) error
 	MarkStackDeleted(ctx context.Context, namespace, name string, at time.Time) error
 	UpsertRun(ctx context.Context, r store.Run) error
-	InsertRunIfAbsent(ctx context.Context, r store.Run) error
+	BackfillRun(ctx context.Context, r store.Run) error
 }
 
 // Options configures NewManager.

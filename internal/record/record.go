@@ -219,8 +219,9 @@ func RunFromStackLastUpdate(obj *unstructured.Unstructured, now time.Time) (
 		Message:    truncate(lu.Message, messageBytesMax),
 		ObservedAt: now,
 	}
+	// lastUpdate names this very run, so its commit is exact, as in CommitFor.
 	if lu.LastAttemptedCommit != "" {
-		r.Commit, r.CommitSource = lu.LastAttemptedCommit, store.CommitSourceStack
+		r.Commit, r.CommitSource = lu.LastAttemptedCommit, store.CommitSourceUpdate
 	}
 	return r, true, nil
 }

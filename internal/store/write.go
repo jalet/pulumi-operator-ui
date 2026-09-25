@@ -36,11 +36,31 @@ ON CONFLICT (namespace, update_name) DO UPDATE SET
     observed_at   = EXCLUDED.observed_at
 RETURNING id`
 
-const _insertRunIfAbsent = `
+// _backfillRun merges a run seen through Stack.status.lastUpdate (always terminal). It
+// completes a run still recorded as pending or running, which happens when its Update was
+// GC'd while the app was down, and upgrades an approximate commit to the exact one. It
+// never changes a terminal row otherwise; RETURNING yields no row when nothing changed.
+const _backfillRun = `
 INSERT INTO runs (namespace, update_name, uid, stack_name, type, commit, commit_source,
                   state, message, started_at, ended_at, observed_at)
 VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8, $9, $10, $11, $12)
-ON CONFLICT (namespace, update_name) DO NOTHING
+ON CONFLICT (namespace, update_name) DO UPDATE SET
+    state         = CASE WHEN runs.state IN ('succeeded', 'failed') THEN runs.state
+                         ELSE EXCLUDED.state END,
+    message       = CASE WHEN runs.state IN ('succeeded', 'failed') OR EXCLUDED.message = ''
+                           THEN runs.message
+                         ELSE EXCLUDED.message END,
+    commit        = CASE WHEN EXCLUDED.commit_source = 'update' AND EXCLUDED.commit <> ''
+                              AND runs.commit_source <> 'update'
+                           THEN EXCLUDED.commit
+                         ELSE runs.commit END,
+    commit_source = CASE WHEN EXCLUDED.commit_source = 'update' AND EXCLUDED.commit <> ''
+                              AND runs.commit_source <> 'update'
+                           THEN 'update'
+                         ELSE runs.commit_source END
+WHERE runs.state NOT IN ('succeeded', 'failed')
+   OR (EXCLUDED.commit_source = 'update' AND EXCLUDED.commit <> ''
+       AND runs.commit_source <> 'update')
 RETURNING id`
 
 // UpsertRun records a run seen through its Update. It is idempotent and converges:
@@ -56,12 +76,13 @@ func (s *Store) UpsertRun(ctx context.Context, r Run) error {
 	return nil
 }
 
-// InsertRunIfAbsent records a run backfilled from Stack.status.lastUpdate. An existing
-// row always wins, because the Update carries better data than the Stack summary.
-func (s *Store) InsertRunIfAbsent(ctx context.Context, r Run) error {
+// BackfillRun records a run from Stack.status.lastUpdate. A new row is inserted; an
+// existing one only converges (see _backfillRun), because the Update carries better data
+// than the Stack summary.
+func (s *Store) BackfillRun(ctx context.Context, r Run) error {
 	assertRun(r)
 	var id int64
-	err := s.pool.QueryRow(ctx, _insertRunIfAbsent, runArgs(r)...).Scan(&id)
+	err := s.pool.QueryRow(ctx, _backfillRun, runArgs(r)...).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}

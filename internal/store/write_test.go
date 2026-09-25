@@ -107,7 +107,7 @@ func TestBackfillThenUpdateMerges(t *testing.T) {
 	s, _ := newTestStore(t)
 	b := run("ns", "u1", RunStateFailed)
 	b.UID, b.Commit, b.CommitSource = "", "aaa", CommitSourceStack
-	must(t, s.InsertRunIfAbsent(t.Context(), b))
+	must(t, s.BackfillRun(t.Context(), b))
 	if got := getRunByName(t, s, "ns", "u1"); got.UID != "" {
 		t.Fatalf("backfilled uid = %q, want empty", got.UID)
 	}
@@ -123,7 +123,7 @@ func TestBackfillThenUpdateMerges(t *testing.T) {
 	}
 }
 
-func TestInsertRunIfAbsentKeepsExisting(t *testing.T) {
+func TestBackfillKeepsTerminalRow(t *testing.T) {
 	s, pub := newTestStore(t)
 	u := run("ns", "u1", RunStateSucceeded)
 	u.Message = "from update"
@@ -131,7 +131,7 @@ func TestInsertRunIfAbsentKeepsExisting(t *testing.T) {
 	pub.reset()
 	b := run("ns", "u1", RunStateFailed)
 	b.Message = "from stack"
-	must(t, s.InsertRunIfAbsent(t.Context(), b))
+	must(t, s.BackfillRun(t.Context(), b))
 	if got := getRunByName(t, s, "ns", "u1"); got.Message != "from update" {
 		t.Fatalf("message = %q", got.Message)
 	}
@@ -196,5 +196,53 @@ func TestOpenTwiceIsIdempotent(t *testing.T) {
 			t.Fatal(err)
 		}
 		s.Close()
+	}
+}
+
+// A run recorded as running whose Update was GC'd while the app was down only
+// learns its end state from Stack.status.lastUpdate.
+func TestBackfillCompletesStuckRun(t *testing.T) {
+	s, pub := newTestStore(t)
+	r := run("ns", "u1", RunStateRunning)
+	r.Commit, r.CommitSource = "aaa", CommitSourceStack
+	mustUpsert(t, s, r)
+	pub.reset()
+	b := run("ns", "u1", RunStateSucceeded)
+	b.UID, b.Commit, b.CommitSource, b.Message = "", "aaa", CommitSourceUpdate, "done"
+	must(t, s.BackfillRun(t.Context(), b))
+	got := getRunByName(t, s, "ns", "u1")
+	if got.State != RunStateSucceeded || got.CommitSource != CommitSourceUpdate ||
+		got.Message != "done" || got.UID != "uid-u1" {
+		t.Fatalf("got %+v", got)
+	}
+	if len(pub.kinds()) == 0 {
+		t.Fatal("no event for a converged run")
+	}
+}
+
+func TestBackfillUpgradesApproximateCommit(t *testing.T) {
+	s, _ := newTestStore(t)
+	r := run("ns", "u1", RunStateSucceeded)
+	r.Commit, r.CommitSource = "old", CommitSourceStack
+	mustUpsert(t, s, r)
+	b := run("ns", "u1", RunStateSucceeded)
+	b.Commit, b.CommitSource = "exact", CommitSourceUpdate
+	must(t, s.BackfillRun(t.Context(), b))
+	got := getRunByName(t, s, "ns", "u1")
+	if got.Commit != "exact" || got.CommitSource != CommitSourceUpdate {
+		t.Fatalf("commit = %s/%s, want exact/update", got.Commit, got.CommitSource)
+	}
+}
+
+func TestBackfillKeepsExactCommit(t *testing.T) {
+	s, _ := newTestStore(t)
+	r := run("ns", "u1", RunStateSucceeded)
+	r.Commit, r.CommitSource = "exact", CommitSourceUpdate
+	mustUpsert(t, s, r)
+	b := run("ns", "u1", RunStateSucceeded)
+	b.Commit, b.CommitSource = "other", CommitSourceUpdate
+	must(t, s.BackfillRun(t.Context(), b))
+	if got := getRunByName(t, s, "ns", "u1"); got.Commit != "exact" {
+		t.Fatalf("commit = %s, want exact", got.Commit)
 	}
 }

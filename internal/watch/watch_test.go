@@ -91,11 +91,19 @@ func (w *memWriter) UpsertRun(_ context.Context, r store.Run) error {
 	return nil
 }
 
-func (w *memWriter) InsertRunIfAbsent(_ context.Context, r store.Run) error {
+// BackfillRun mirrors the store's merge: insert when absent, otherwise only complete a
+// non-terminal run.
+func (w *memWriter) BackfillRun(_ context.Context, r store.Run) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if _, ok := w.runs[r.Namespace+"/"+r.UpdateName]; !ok {
-		w.runs[r.Namespace+"/"+r.UpdateName] = r
+	key := r.Namespace + "/" + r.UpdateName
+	cur, ok := w.runs[key]
+	switch {
+	case !ok:
+		w.runs[key] = r
+	case cur.State != store.RunStateSucceeded && cur.State != store.RunStateFailed:
+		cur.State, cur.Message = r.State, r.Message
+		w.runs[key] = cur
 	}
 	return nil
 }
@@ -304,4 +312,28 @@ func TestNamespacedMode(t *testing.T) {
 	createStack(t, watched, nil)
 	eventually(t, "watched stack", func() bool { _, ok := w.stack(watched + "/app"); return ok })
 	never(t, "other-namespace stack", func() bool { _, ok := w.stack(other + "/app"); return ok })
+}
+
+func TestRunCompletedWhileUpdateGone(t *testing.T) {
+	ns := newNamespace(t, "gc")
+	w := startManager(t)
+	st := createStack(t, ns, nil)
+	u := createUpdate(t, ns, st)
+	setStatus(t, u, map[string]any{"conditions": []any{condition("Progressing", "True")}})
+	eventually(t, "running run", func() bool {
+		r, ok := w.run(ns + "/app-u1")
+		return ok && r.State == store.RunStateRunning
+	})
+	if err := _c.Delete(t.Context(), u); err != nil { // PKO GC'd it before we saw the end
+		t.Fatal(err)
+	}
+	if err := _c.Get(t.Context(), client.ObjectKeyFromObject(st), st); err != nil {
+		t.Fatal(err)
+	}
+	setStatus(t, st, map[string]any{"lastUpdate": map[string]any{"name": "app-u1",
+		"type": "up", "state": "failed", "message": "boom", "lastAttemptedCommit": "ccc"}})
+	eventually(t, "run converged to failed", func() bool {
+		r, ok := w.run(ns + "/app-u1")
+		return ok && r.State == store.RunStateFailed && r.Message == "boom"
+	})
 }
