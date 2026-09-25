@@ -32,6 +32,8 @@ type Reader interface {
 	ListRuns(ctx context.Context, namespace, name string, f store.RunFilter,
 		before *store.Cursor, limit int) ([]store.Run, *store.Cursor, error)
 	GetRun(ctx context.Context, id int64) (store.Run, error)
+	StackStats(ctx context.Context, namespace, name string, f store.RunFilter,
+		since time.Time) (store.StackStats, error)
 	Ping(ctx context.Context) error
 }
 
@@ -210,8 +212,11 @@ func (s *server) loadStackPage(ctx context.Context, ns, name string, before *sto
 	if err != nil {
 		return stackPage{}, err
 	}
-	runs, next, err := s.store.ListRuns(ctx, ns, name, store.RunFilter{Previews: previews},
-		before, runsPageSize)
+	var f store.RunFilter // default types; Task 5 replaces the previews flag with ?types=
+	if previews {
+		f.Types = store.AllRunTypes
+	}
+	runs, next, err := s.store.ListRuns(ctx, ns, name, f, before, runsPageSize)
 	if err != nil {
 		return stackPage{}, err
 	}

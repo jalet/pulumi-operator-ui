@@ -93,7 +93,7 @@ func TestListRunsKeyset(t *testing.T) {
 	var got []string
 	var cursor *Cursor
 	for page := 1; page <= 10; page++ {
-		runs, next, err := s.ListRuns(ctx, "ns", "s", RunFilter{Previews: true}, cursor, 2)
+		runs, next, err := s.ListRuns(ctx, "ns", "s", RunFilter{Types: AllRunTypes}, cursor, 2)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -115,11 +115,11 @@ func TestListRunsSameTimeTieBreaksOnID(t *testing.T) {
 	for _, name := range []string{"a", "b", "c"} {
 		mustUpsert(t, s, runAt("ns", "s", name, RunTypeUp, _t0))
 	}
-	first, next, err := s.ListRuns(t.Context(), "ns", "s", RunFilter{Previews: true}, nil, 2)
+	first, next, err := s.ListRuns(t.Context(), "ns", "s", RunFilter{Types: AllRunTypes}, nil, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rest, last, err := s.ListRuns(t.Context(), "ns", "s", RunFilter{Previews: true}, next, 2)
+	rest, last, err := s.ListRuns(t.Context(), "ns", "s", RunFilter{Types: AllRunTypes}, next, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestInsertAuthEventCapsFields(t *testing.T) {
 	}
 }
 
-func TestListRunsHidesPreviewsUnlessAsked(t *testing.T) {
+func TestListRunsTypeFilter(t *testing.T) {
 	s, _ := newTestStore(t)
 	types := []RunType{RunTypePreview, RunTypeUp, RunTypePreview, RunTypeRefresh, RunTypePreview,
 		RunTypeDestroy, RunTypeUp}
@@ -198,11 +198,70 @@ func TestListRunsHidesPreviewsUnlessAsked(t *testing.T) {
 		t.Fatal("more than 10 pages")
 		return nil
 	}
-	if diff := cmp.Diff([]string{"r6", "r5", "r3", "r1"}, collect(RunFilter{})); diff != "" {
-		t.Errorf("default (-want +got):\n%s", diff)
+	tests := []struct {
+		name string
+		give RunFilter
+		want []string
+	}{
+		{"default hides previews", RunFilter{}, []string{"r6", "r5", "r3", "r1"}},
+		{"previews only", RunFilter{Types: []RunType{RunTypePreview}}, []string{"r4", "r2", "r0"}},
+		{"all", RunFilter{Types: AllRunTypes}, []string{"r6", "r5", "r4", "r3", "r2", "r1", "r0"}},
+		{"up only", RunFilter{Types: []RunType{RunTypeUp}}, []string{"r6", "r1"}},
 	}
-	all := []string{"r6", "r5", "r4", "r3", "r2", "r1", "r0"}
-	if diff := cmp.Diff(all, collect(RunFilter{Previews: true})); diff != "" {
-		t.Errorf("with previews (-want +got):\n%s", diff)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if diff := cmp.Diff(tt.want, collect(tt.give)); diff != "" {
+				t.Errorf("(-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestStackStats(t *testing.T) {
+	s, _ := newTestStore(t)
+	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	add := func(name string, typ RunType, state RunState, age time.Duration) {
+		r := runAt("ns", "s", name, typ, now.Add(-age))
+		r.State = state
+		mustUpsert(t, s, r)
+	}
+	add("u1", RunTypeUp, RunStateSucceeded, time.Hour)
+	add("u2", RunTypeUp, RunStateFailed, 2*time.Hour)
+	add("u3", RunTypeUp, RunStateRunning, 3*time.Hour)
+	add("p1", RunTypePreview, RunStateSucceeded, time.Hour)
+	add("p2", RunTypePreview, RunStateSucceeded, 2*time.Hour)
+	add("old", RunTypeUp, RunStateFailed, 8*24*time.Hour) // outside the 7-day window
+	add("other", RunTypeUp, RunStateSucceeded, time.Hour)
+	mustUpsert(t, s, runAt("ns", "t", "t1", RunTypeUp, now.Add(-time.Hour))) // another stack
+
+	since := now.Add(-7 * 24 * time.Hour)
+	tests := []struct {
+		name string
+		give RunFilter
+		want StackStats
+	}{
+		{"default", RunFilter{}, StackStats{Total: 4, Succeeded: 2, Failed: 1, HiddenPreviews: 2}},
+		{"previews only", RunFilter{Types: []RunType{RunTypePreview}},
+			StackStats{Total: 2, Succeeded: 2}},
+		{"all", RunFilter{Types: AllRunTypes}, StackStats{Total: 6, Succeeded: 4, Failed: 1}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := s.StackStats(t.Context(), "ns", "s", tt.give, since)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("(-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestStackStatsEmpty(t *testing.T) {
+	s, _ := newTestStore(t)
+	got, err := s.StackStats(t.Context(), "ns", "none", RunFilter{}, time.Now().Add(-time.Hour))
+	if err != nil || got != (StackStats{}) {
+		t.Fatalf("got %+v, %v", got, err)
 	}
 }

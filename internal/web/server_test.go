@@ -28,6 +28,12 @@ type fakeReader struct {
 	pingErr error
 	gotCur  *store.Cursor
 	gotF    *store.RunFilter
+	stats   store.StackStats
+}
+
+func (f *fakeReader) StackStats(context.Context, string, string, store.RunFilter,
+	time.Time) (store.StackStats, error) {
+	return f.stats, nil
 }
 
 func (f *fakeReader) ListStacks(context.Context) ([]store.StackSummary, error) {
@@ -334,7 +340,7 @@ func TestStackPageHidesPreviewsByDefault(t *testing.T) {
 	r.next = &store.Cursor{At: time.Unix(0, 5), ID: 3}
 	srv := newServer(t, r, nil)
 	_, body := get(t, srv, "/stacks/ns/app")
-	if r.gotF == nil || r.gotF.Previews {
+	if r.gotF == nil || len(r.gotF.Types) != 0 {
 		t.Fatalf("filter = %+v, want previews hidden", r.gotF)
 	}
 	for _, want := range []string{
@@ -353,7 +359,7 @@ func TestStackPageShowsPreviewsWhenAsked(t *testing.T) {
 	r.next = &store.Cursor{At: time.Unix(0, 5), ID: 3}
 	srv := newServer(t, r, nil)
 	_, body := get(t, srv, "/stacks/ns/app?previews=1")
-	if r.gotF == nil || !r.gotF.Previews {
+	if r.gotF == nil || len(r.gotF.Types) != 4 {
 		t.Fatalf("filter = %+v, want previews shown", r.gotF)
 	}
 	for _, want := range []string{
@@ -371,14 +377,14 @@ func TestRunsFragmentKeepsPreviewChoice(t *testing.T) {
 	r := sampleReader()
 	srv := newServer(t, r, nil)
 	_, body := get(t, srv, "/fragments/stacks/ns/app/runs?previews=1")
-	if r.gotF == nil || !r.gotF.Previews {
+	if r.gotF == nil || len(r.gotF.Types) != 4 {
 		t.Fatalf("filter = %+v, want previews shown", r.gotF)
 	}
 	if !strings.Contains(body, `hx-get="/fragments/stacks/ns/app/runs?previews=1"`) {
 		t.Error("refreshed fragment dropped the previews choice")
 	}
 	get(t, srv, "/fragments/stacks/ns/app/runs")
-	if r.gotF.Previews {
+	if len(r.gotF.Types) != 0 {
 		t.Fatal("default fragment shows previews")
 	}
 }
