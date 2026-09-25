@@ -45,7 +45,7 @@ output (the logs) and, for S3 DIY backends, in `.pulumi/history/<project>/<stack
 
 | Topic | Decision |
 |---|---|
-| Access to the cluster | Read-only: get/list/watch on stacks, updates, workspaces and pods, plus get on `pods/log` |
+| Access to the cluster | Read-only: get/list/watch on stacks and updates (phase 1); phase 2 adds workspaces, pods and get on `pods/log` |
 | Language and UI | Go, `html/template` + htmx, live refresh over SSE; one binary, no Node toolchain |
 | Persistence | PostgreSQL (pgx, embedded migrations). example runs a dedicated CNPG cluster for it |
 | Authentication | Built-in OIDC (go-oidc, x/oauth2), custom CA bundle supported, HMAC-signed session cookie |
@@ -71,7 +71,7 @@ output (the logs) and, for S3 DIY backends, in `.pulumi/history/<project>/<stack
 | Package | Responsibility | Depends on |
 |---|---|---|
 | `internal/watch` | controller-runtime cache watching Stack, Update, Workspace and workspace Pods; namespaces configurable, all by default | Kubernetes API |
-| `internal/record` | Maps Update and Stack events to idempotent upserts on `runs`: Update UID, stack, type, commit, start, end, state, message. The commit comes from a revision field on the Update or Workspace if the spike finds one (`commit_source=update`), and otherwise from the Stack's `lastAttemptedCommit` when the Update is first seen (`commit_source=stack`, shown as approximate). A restart re-lists and converges, and on startup it also backfills from each Stack's `status.lastUpdate` | watch, store |
+| `internal/record` | Maps Update and Stack events to idempotent upserts on `runs`: Update UID, stack, type, commit, start, end, state, message. The Update CRD carries no commit, so the commit comes from the owning Stack: `status.currentUpdate.commit` or `status.lastUpdate.lastAttemptedCommit` when that entry names this Update (`commit_source=update`, exact), otherwise `lastAttemptedCommit` when the Update is first seen (`commit_source=stack`, shown as approximate). A restart re-lists and converges, and every Stack reconcile inserts its `status.lastUpdate` as a run if that run is not recorded yet | watch, store |
 | `internal/logs` | The workspace pod is expected to be long-lived and reused across Updates (to be confirmed in the spike), so the log is sliced per run: read with `sinceTime` set to the Update's `startTime`, stop at `endTime`. If the app restarts mid-run, it re-reads from `startTime` and replaces the stored text, so capture is idempotent. Stores ANSI-stripped text, capped at 1 MiB, then parses the resource lines and the `Resources:` summary with a pure parser | watch, store |
 | `internal/s3hist` | **Optional.** Only built when `--s3-history.enabled=true`; nothing else imports it. Every 5 minutes, lists new history files and stores `kind`, timestamps and `resourceChanges`, matching each entry to an `up`, `refresh` or `destroy` run of the same stack by time window. DIY history does not record previews, so preview runs never have S3 counts | S3, store |
 | `internal/store` | Schema, queries and retention: `--retention` (default 180 days) for runs, logs and changes; `--auth-retention` (default 1 year) for auth events | PostgreSQL |
@@ -82,11 +82,13 @@ output (the logs) and, for S3 DIY backends, in `.pulumi/history/<project>/<stack
 
 | Table | Key columns |
 |---|---|
-| `stacks` | namespace, name, ready, reconciling, stalled, last_commit, updated_at, deleted_at |
-| `runs` | id (Update UID), stack_ns, stack_name, type, commit, commit_source (`update` or `stack`), state, message, started_at, ended_at, log_status, s3_status |
+| `stacks` | namespace, name, ready, reconciling, stalled, last_commit (`lastSuccessfulCommit`), updated_at, deleted_at |
+| `runs` | id (identity), namespace, update_name (unique with namespace), uid (Update UID, null when backfilled), stack_name, type, commit, commit_source (`update` or `stack`), state, message, started_at, ended_at, observed_at; phase 2 adds log_status, phase 3 s3_status |
 | `run_logs` | run_id, text, truncated |
 | `run_changes` | run_id, source (`log` or `s3`), create, update, delete, replace, same, resources (jsonb) |
 | `auth_events` | at, subject, email, outcome (`login`, `denied`, `error`), claim_values |
+
+Runs are keyed by namespace and Update name, not UID: a run backfilled from `Stack.status.lastUpdate` has no UID, and the Update seen later merges into the same row. Upserts never move a terminal state back to running, and keep the first non-empty commit unless an exact (`update`) commit arrives.
 
 The run page shows `s3` counts when they exist and otherwise falls back to `log`.
 
@@ -174,7 +176,9 @@ limits.
 | Flag | Default | Notes |
 |---|---|---|
 | `--namespaces` | all | comma-separated list to watch |
-| `--database-url` | required | taken from an env var or file |
+| `--http-addr` | `:8080` | UI listener |
+| `--database-url` | required | falls back to the `DATABASE_URL` env var; `sslmode=disable` only for localhost |
+| `--database.ca-file` | none | CA bundle for verifying the database's TLS certificate |
 | `--oidc.issuer`, `--oidc.client-id`, `--oidc.client-secret-file`, `--oidc.redirect-url` | required | |
 | `--oidc.ca-file` | none | extra CA bundle |
 | `--auth.claim`, `--auth.allowed` | `groups`, required | e.g. `roles` / `Pulumi Viewers` |
@@ -198,8 +202,8 @@ confirm:
 
 - whether the workspace pod persists across Updates in 2.9.1, which decides the log slicing in
   `internal/logs`;
-- whether the Update or Workspace carries the commit or revision, so `record` does not have to
-  rely on the Stack's `lastAttemptedCommit`;
+- answered in phase 1: the 2.9.1 Update CRD has no commit field; the Stack's
+  `status.currentUpdate{name, commit}` names the running Update and its commit;
 - the S3 history path, the file shape, whether refresh and destroy produce history files, and
   the bucket's encryption.
 
