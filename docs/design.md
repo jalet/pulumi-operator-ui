@@ -45,7 +45,7 @@ output (the logs) and, for S3 DIY backends, in `.pulumi/history/<project>/<stack
 
 | Topic | Decision |
 |---|---|
-| Access to the cluster | Read-only: get/list/watch on stacks and updates (phase 1); phase 2 adds workspaces, pods and get on `pods/log` |
+| Access to the cluster | Read-only: get/list/watch on stacks and updates (phase 1); phase 2 adds get on `pods` and `pods/log` |
 | Language and UI | Go, `html/template` + htmx, live refresh over SSE; one binary, no Node toolchain |
 | UI styling | Tailwind CSS v4 via its standalone CLI (pinned in mise); the compiled `app.css` is committed and CI checks it is current. Playground brand theme, following the OS light or dark setting; fonts self-hosted |
 | Persistence | PostgreSQL (pgx, embedded migrations). example runs a dedicated CNPG cluster for it |
@@ -84,8 +84,7 @@ output (the logs) and, for S3 DIY backends, in `.pulumi/history/<project>/<stack
 | Table | Key columns |
 |---|---|
 | `stacks` | namespace, name, ready, reconciling, stalled, last_commit (`lastSuccessfulCommit`), updated_at, deleted_at |
-| `runs` | id (identity), namespace, update_name (unique with namespace), uid (Update UID, null when backfilled), stack_name, type, commit, commit_source (`update` or `stack`), state, message, started_at, ended_at, observed_at; phase 2 adds log_status, phase 3 s3_status |
-| `run_logs` | run_id, text, truncated |
+| `runs` | id (identity), namespace, update_name (unique with namespace), uid (Update UID, null when backfilled), stack_name, type, commit, commit_source (`update` or `stack`), state, message, started_at, ended_at, observed_at, log_status (`''`, `pending`, `captured`, `unavailable`) |
 | `run_changes` | run_id, source (`log` or `s3`), create, update, delete, replace, same, resources (jsonb) |
 | `auth_events` | at, subject, email, outcome (`login`, `denied`, `error`), claim_values |
 
@@ -98,7 +97,7 @@ list. Its runs stay and follow normal retention. The row is purged once no runs 
 
 ### Retention
 
-`--retention` (default 180 days) prunes `runs`, `run_logs` and `run_changes`. `--auth-retention`
+`--retention` (default 180 days) prunes `runs` and `run_changes`. `--auth-retention`
 (default 1 year) prunes `auth_events`, following the internal logging baseline (COMP-008).
 Auth events contain personal data (subject, email), so this retention period must be justified
 under GDPR Article 5(1)(e), storage limitation. VERIFY WITH LEGAL COUNSEL.
@@ -242,7 +241,9 @@ Operator baseline prefers a customer-managed key for state buckets; moving to on
 0. Spike (throwaway): answer the open question above.
 1. Scaffold, watch, record, store, auth and a status-only UI; the chart, CI and the example
    deployment. This slice is usable on its own.
-2. Log capture and parsing.
+2. Log capture and parsing (done; see
+   `docs/superpowers/specs/2026-09-25-log-capture-design.md`). The raw log is not stored:
+   `run_changes` rows with `source = 'log'` hold counts and the changed resources.
 3. Opt-in S3 history. For example, enabling it is a separate change: the IAM user, the AWS
    ExternalSecret and `s3History.enabled: true`.
 

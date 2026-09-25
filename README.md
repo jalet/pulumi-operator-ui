@@ -56,8 +56,10 @@ are skipped. Problems per Stack show on its page ("Pulumi history unavailable: .
 ## Security model
 
 - Read-only: the ClusterRole (or per-namespace Roles) grants only `get`,
-  `list` and `watch` on `stacks.pulumi.com` and `updates.auto.pulumi.com`.
-  It never reads Secrets.
+  `list` and `watch` on `stacks.pulumi.com` and `updates.auto.pulumi.com`,
+  plus `get` on `pods` and `pods/log` to read each finished run's engine output
+  from its workspace pod. It never reads Secrets. Stored diffs keep Pulumi's
+  `[secret]` masking and never include stack outputs.
 - Every page requires an OIDC session (authorization code with PKCE, `state`
   and `nonce`). Access is an allowlist on one claim; everyone allowed sees
   everything. Sign-ins and denials are recorded in the `auth_events` table.
