@@ -26,9 +26,9 @@ type Kind int
 // Event kinds.
 const (
 	KindInvalid  Kind = iota // zero value, never published
-	KindStack         // one stack row changed
-	KindStackSet      // a stack appeared, reappeared or was deleted
-	KindRun           // one run changed
+	KindStack                // one stack row changed
+	KindStackSet             // a stack appeared, reappeared or was deleted
+	KindRun                  // one run changed
 )
 
 // Event is a change notification. It carries identity only; readers fetch current state.
