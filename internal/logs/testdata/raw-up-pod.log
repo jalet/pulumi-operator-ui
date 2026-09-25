@@ -1,0 +1,119 @@
+2026-09-25T14:47:50.171001781Z 2026-09-25T14:47:50.170Z	INFO	cmd.serve	Pulumi Kubernetes Agent	{"version": "v2.9.1"}
+2026-09-25T14:47:50.172816870Z 2026-09-25T14:47:50.172Z	INFO	cmd.serve	activated the Kubernetes authorization mode	{"audiences": ["prod.pulumi"], "workspace.namespace": "pulumi", "workspace.name": "prod"}
+2026-09-25T14:47:50.266773612Z 2026-09-25T14:47:50.266Z	INFO	cmd.serve	opened a local workspace	{"workspace": "/share/source/pulumi", "project": "example-infra", "runtime": "go"}
+2026-09-25T14:47:50.266799937Z 2026-09-25T14:47:50.266Z	INFO	cmd.serve	installation skipped	{"project": "example-infra", "runtime": "go"}
+2026-09-25T14:47:50.267011241Z 2026-09-25T14:47:50.266Z	INFO	server	project serving	{"project": "example-infra", "runtime": "go"}
+2026-09-25T14:47:50.267021221Z 2026-09-25T14:47:50.266Z	INFO	cmd.serve	starting the RPC server	{"address": "0.0.0.0:50051"}
+2026-09-25T14:47:50.267029704Z 2026-09-25T14:47:50.266Z	INFO	cmd.serve.grpc	[core][Server #1] Server created	{"system": "grpc", "grpc_log": true}
+2026-09-25T14:47:50.271228256Z 2026-09-25T14:47:50.271Z	INFO	cmd.serve	server listening	{"address": "[::]:50051", "workspace": "/share/source/pulumi"}
+2026-09-25T14:47:50.271379802Z 2026-09-25T14:47:50.271Z	INFO	cmd.serve.grpc	[core][Server #1 ListenSocket #2] ListenSocket created	{"system": "grpc", "grpc_log": true}
+2026-09-25T14:47:55.264515781Z 2026-09-25T14:47:55.264Z	INFO	cmd.serve.grpc	finished unary call with code OK	{"grpc.start_time": "2026-09-25T14:47:55Z", "system": "grpc", "span.kind": "server", "grpc.service": "agent.AutomationService", "grpc.method": "PulumiVersion", "peer.address": "10.0.0.1:41684", "auth.mode": "kubernetes", "user.id": "00000000-0000-0000-0000-000000000000", "user.name": "system:serviceaccount:pulumi:pulumi-kubernetes-operator", "grpc.code": "OK", "grpc.time_ms": 8.013}
+2026-09-25T14:47:55.274698319Z 2026-09-25T14:47:55.274Z	INFO	server	installing the project dependencies
+2026-09-25T14:47:55.389882366Z 2026-09-25T14:47:55.389Z	INFO	pulumi	Installing dependencies...
+2026-09-25T14:47:55.389919222Z 2026-09-25T14:47:55.389Z	INFO	pulumi	
+2026-09-25T14:47:55.830462268Z 2026-09-25T14:47:55.830Z	INFO	pulumi	Finished installing dependencies
+2026-09-25T14:47:55.830495376Z 2026-09-25T14:47:55.830Z	INFO	pulumi	
+2026-09-25T14:47:56.103599528Z 2026-09-25T14:47:56.103Z	INFO	server	installation completed
+2026-09-25T14:47:56.103630105Z 2026-09-25T14:47:56.103Z	INFO	cmd.serve.grpc	finished unary call with code OK	{"grpc.start_time": "2026-09-25T14:47:55Z", "system": "grpc", "span.kind": "server", "grpc.service": "agent.AutomationService", "grpc.method": "Install", "auth.mode": "kubernetes", "user.id": "00000000-0000-0000-0000-000000000000", "user.name": "system:serviceaccount:pulumi:pulumi-kubernetes-operator", "peer.address": "10.0.0.1:41684", "grpc.code": "OK", "grpc.time_ms": 829.205}
+2026-09-25T14:47:56.448197596Z 2026-09-25T14:47:56.447Z	INFO	server	selected a stack	{"name": "prod"}
+2026-09-25T14:47:57.001213706Z 2026-09-25T14:47:57.000Z	INFO	cmd.serve.grpc	finished unary call with code OK	{"grpc.start_time": "2026-09-25T14:47:56Z", "system": "grpc", "span.kind": "server", "grpc.service": "agent.AutomationService", "grpc.method": "SelectStack", "peer.address": "10.0.0.1:41684", "auth.mode": "kubernetes", "user.id": "00000000-0000-0000-0000-000000000000", "user.name": "system:serviceaccount:pulumi:pulumi-kubernetes-operator", "grpc.code": "OK", "grpc.time_ms": 888.302}
+2026-09-25T14:47:58.600552393Z 2026-09-25T14:47:58.600Z	INFO	server	selected a stack	{"name": "prod"}
+2026-09-25T14:47:59.136617742Z 2026-09-25T14:47:59.136Z	INFO	cmd.serve.grpc	finished unary call with code OK	{"grpc.start_time": "2026-09-25T14:47:58Z", "system": "grpc", "span.kind": "server", "grpc.service": "agent.AutomationService", "grpc.method": "SelectStack", "peer.address": "10.0.0.1:45394", "auth.mode": "kubernetes", "user.id": "00000000-0000-0000-0000-000000000000", "user.name": "system:serviceaccount:pulumi:pulumi-kubernetes-operator", "grpc.code": "OK", "grpc.time_ms": 785.688}
+2026-09-25T14:47:59.439836230Z 2026-09-25T14:47:59.439Z	INFO	cmd.serve.grpc	[core][Server #5] Server created	{"system": "grpc", "grpc_log": true}
+2026-09-25T14:47:59.439984354Z 2026-09-25T14:47:59.439Z	INFO	cmd.serve.grpc	[core][Server #5 ListenSocket #6] ListenSocket created	{"system": "grpc", "grpc_log": true}
+2026-09-25T14:47:59.814883253Z 2026-09-25T14:47:59.814Z	INFO	pulumi	Updating (prod):
+2026-09-25T14:48:05.476791762Z 2026-09-25T14:48:05.476Z	INFO	pulumi	~ pulumi:pulumi:Stack: (refresh)
+2026-09-25T14:48:05.476834591Z 2026-09-25T14:48:05.476Z	INFO	pulumi	    [urn=urn:pulumi:prod::example-infra::pulumi:pulumi:Stack::example-infra-prod]
+2026-09-25T14:48:05.476838687Z 2026-09-25T14:48:05.476Z	INFO	pulumi	    --outputs:--
+2026-09-25T14:48:05.476840713Z 2026-09-25T14:48:05.476Z	INFO	pulumi	    accountId: "123456789012"
+2026-09-25T14:48:05.476842587Z 2026-09-25T14:48:05.476Z	INFO	pulumi	    region   : "eu-north-1"
+2026-09-25T14:48:06.795218816Z 2026-09-25T14:48:06.795Z	WARN	pulumi	Compiling the program ...
+2026-09-25T14:48:17.898297537Z 2026-09-25T14:48:17.898Z	WARN	pulumi	Finished compiling
+2026-09-25T14:48:18.970021914Z 2026-09-25T14:48:18.969Z	INFO	pulumi	  pulumi:pulumi:Stack: (same)
+2026-09-25T14:48:18.970053715Z 2026-09-25T14:48:18.969Z	INFO	pulumi	    [urn=urn:pulumi:prod::example-infra::pulumi:pulumi:Stack::example-infra-prod]
+2026-09-25T14:48:20.143745296Z 2026-09-25T14:48:20.142Z	INFO	pulumi	    ~ aws:iam/userPolicy:UserPolicy: (update)
+2026-09-25T14:48:20.143784455Z 2026-09-25T14:48:20.142Z	INFO	pulumi	        [id=pulumi-operator-ui:pulumi-operator-ui-s3-history]
+2026-09-25T14:48:20.143789033Z 2026-09-25T14:48:20.142Z	INFO	pulumi	        [urn=urn:pulumi:prod::example-infra::aws:iam/userPolicy:UserPolicy::pulumi-operator-ui]
+2026-09-25T14:48:20.143798977Z 2026-09-25T14:48:20.142Z	INFO	pulumi	        [provider=urn:pulumi:prod::example-infra::pulumi:providers:aws::default_7_48_0::00000000-0000-0000-0000-000000000000]
+2026-09-25T14:48:20.143802154Z 2026-09-25T14:48:20.142Z	INFO	pulumi	      ~ policy: (json) {
+2026-09-25T14:48:20.143804933Z 2026-09-25T14:48:20.142Z	INFO	pulumi	          ~ Statement: [
+2026-09-25T14:48:20.143806983Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                [0]: {
+2026-09-25T14:48:20.143809868Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                        Action   : "*"
+2026-09-25T14:48:20.143811940Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                        Condition: {
+2026-09-25T14:48:20.143814131Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                            BoolIfExists: {
+2026-09-25T14:48:20.143816143Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                                aws:ViaAWSService: "false"
+2026-09-25T14:48:20.143818111Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                            }
+2026-09-25T14:48:20.143820077Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                            NotIpAddress: {
+2026-09-25T14:48:20.143822037Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                                aws:SourceIp: "[secret]"
+2026-09-25T14:48:20.143824172Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                            }
+2026-09-25T14:48:20.143826146Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                        }
+2026-09-25T14:48:20.143828252Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                        Effect   : "Deny"
+2026-09-25T14:48:20.143830185Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                        Resource : "*"
+2026-09-25T14:48:20.143832139Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                    }
+2026-09-25T14:48:20.143834156Z 2026-09-25T14:48:20.142Z	INFO	pulumi	              ~ [1]: {
+2026-09-25T14:48:20.143836174Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                        Action   : "s3:ListBucket"
+2026-09-25T14:48:20.143854101Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                        Condition: {
+2026-09-25T14:48:20.143856246Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                            StringLike: {
+2026-09-25T14:48:20.143858305Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                                s3:prefix: "pulumi/example/.pulumi/history/*"
+2026-09-25T14:48:20.143860662Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                            }
+2026-09-25T14:48:20.143862694Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                        }
+2026-09-25T14:48:20.143864712Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                        Effect   : "Allow"
+2026-09-25T14:48:20.143866684Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                        Resource : "arn:aws:s3:::state-bucket"
+2026-09-25T14:48:20.143868698Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                      + Sid      : "ListHistory"
+2026-09-25T14:48:20.143872002Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                    }
+2026-09-25T14:48:20.143874959Z 2026-09-25T14:48:20.142Z	INFO	pulumi	              ~ [2]: {
+2026-09-25T14:48:20.143877581Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                        Action  : "s3:GetObject"
+2026-09-25T14:48:20.143880561Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                        Effect  : "Allow"
+2026-09-25T14:48:20.143883808Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                        Resource: "arn:aws:s3:::state-bucket/pulumi/example/.pulumi/history/*/*.history.json"
+2026-09-25T14:48:20.143887258Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                      + Sid     : "ReadHistoryFiles"
+2026-09-25T14:48:20.143890689Z 2026-09-25T14:48:20.142Z	INFO	pulumi	                    }
+2026-09-25T14:48:20.143894243Z 2026-09-25T14:48:20.142Z	INFO	pulumi	            ]
+2026-09-25T14:48:20.143896581Z 2026-09-25T14:48:20.142Z	INFO	pulumi	            Version  : "2012-10-17"
+2026-09-25T14:48:20.143899230Z 2026-09-25T14:48:20.142Z	INFO	pulumi	        }
+2026-09-25T14:48:20.633536353Z 2026-09-25T14:48:20.632Z	INFO	pulumi	        --outputs:--
+2026-09-25T14:48:20.633573510Z 2026-09-25T14:48:20.632Z	INFO	pulumi	      ~ policy    : (json) {
+2026-09-25T14:48:20.633576983Z 2026-09-25T14:48:20.632Z	INFO	pulumi	          ~ Statement: [
+2026-09-25T14:48:20.633579419Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                [0]: {
+2026-09-25T14:48:20.633582367Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                        Action   : "*"
+2026-09-25T14:48:20.633585355Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                        Condition: {
+2026-09-25T14:48:20.633588007Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                            BoolIfExists: {
+2026-09-25T14:48:20.633592645Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                                aws:ViaAWSService: "false"
+2026-09-25T14:48:20.633595133Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                            }
+2026-09-25T14:48:20.633597095Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                            NotIpAddress: {
+2026-09-25T14:48:20.633598964Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                                aws:SourceIp: "[secret]"
+2026-09-25T14:48:20.633601161Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                            }
+2026-09-25T14:48:20.633604284Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                        }
+2026-09-25T14:48:20.633607144Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                        Effect   : "Deny"
+2026-09-25T14:48:20.633609748Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                        Resource : "*"
+2026-09-25T14:48:20.633612681Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                    }
+2026-09-25T14:48:20.633616093Z 2026-09-25T14:48:20.632Z	INFO	pulumi	              ~ [1]: {
+2026-09-25T14:48:20.633627906Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                        Action   : "s3:ListBucket"
+2026-09-25T14:48:20.633629846Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                        Condition: {
+2026-09-25T14:48:20.633631670Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                            StringLike: {
+2026-09-25T14:48:20.633634245Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                                s3:prefix: "pulumi/example/.pulumi/history/*"
+2026-09-25T14:48:20.633636896Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                            }
+2026-09-25T14:48:20.633639835Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                        }
+2026-09-25T14:48:20.633642257Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                        Effect   : "Allow"
+2026-09-25T14:48:20.633645185Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                        Resource : "arn:aws:s3:::state-bucket"
+2026-09-25T14:48:20.633648048Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                      + Sid      : "ListHistory"
+2026-09-25T14:48:20.633650563Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                    }
+2026-09-25T14:48:20.633653859Z 2026-09-25T14:48:20.632Z	INFO	pulumi	              ~ [2]: {
+2026-09-25T14:48:20.633656616Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                        Action  : "s3:GetObject"
+2026-09-25T14:48:20.633659285Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                        Effect  : "Allow"
+2026-09-25T14:48:20.633670946Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                        Resource: "arn:aws:s3:::state-bucket/pulumi/example/.pulumi/history/*/*.history.json"
+2026-09-25T14:48:20.633674156Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                      + Sid     : "ReadHistoryFiles"
+2026-09-25T14:48:20.633676783Z 2026-09-25T14:48:20.632Z	INFO	pulumi	                    }
+2026-09-25T14:48:20.633679423Z 2026-09-25T14:48:20.632Z	INFO	pulumi	            ]
+2026-09-25T14:48:20.633682639Z 2026-09-25T14:48:20.632Z	INFO	pulumi	            Version  : "2012-10-17"
+2026-09-25T14:48:20.633686115Z 2026-09-25T14:48:20.632Z	INFO	pulumi	        }
+2026-09-25T14:48:20.797733791Z 2026-09-25T14:48:20.797Z	INFO	pulumi	    --outputs:--
+2026-09-25T14:48:20.797774251Z 2026-09-25T14:48:20.797Z	INFO	pulumi	    accountId: "123456789012"
+2026-09-25T14:48:20.797780311Z 2026-09-25T14:48:20.797Z	INFO	pulumi	    region   : "eu-north-1"
+2026-09-25T14:48:20.804070169Z 2026-09-25T14:48:20.803Z	INFO	pulumi	Resources:
+2026-09-25T14:48:20.804110987Z 2026-09-25T14:48:20.803Z	INFO	pulumi	    ~ 1 updated
+2026-09-25T14:48:20.804117366Z 2026-09-25T14:48:20.803Z	INFO	pulumi	    116 unchanged
+2026-09-25T14:48:20.804121637Z 2026-09-25T14:48:20.803Z	INFO	pulumi	
+2026-09-25T14:48:20.804125776Z 2026-09-25T14:48:20.803Z	INFO	pulumi	Duration: 21s
+2026-09-25T14:48:22.222711111Z 2026-09-25T14:48:22.222Z	INFO	cmd.serve.grpc	[core][Server #5 ListenSocket #6] ListenSocket deleted	{"system": "grpc", "grpc_log": true}
+2026-09-25T14:48:22.222735904Z 2026-09-25T14:48:22.222Z	INFO	server	up completed	{"result": "succeeded", "message": "\"New commit detected: \\\"2ea43b6f4ab76073d9ad349b0ad2e065d46604c9\\\"\""}
+2026-09-25T14:48:22.223074375Z 2026-09-25T14:48:22.222Z	INFO	cmd.serve.grpc	finished streaming call with code OK	{"grpc.start_time": "2026-09-25T14:47:59Z", "system": "grpc", "span.kind": "server", "grpc.service": "agent.AutomationService", "grpc.method": "Up", "peer.address": "10.0.0.1:45394", "auth.mode": "kubernetes", "user.id": "00000000-0000-0000-0000-000000000000", "user.name": "system:serviceaccount:pulumi:pulumi-kubernetes-operator", "grpc.code": "OK", "grpc.time_ms": 23085.922}

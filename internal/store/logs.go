@@ -38,9 +38,10 @@ func (s *Store) PendingLogs(ctx context.Context, limit int) ([]LogJob, error) {
 }
 
 // SaveLog records a capture outcome. For LogStatusCaptured it stores counts and resources as
-// the run's source 'log' changes; for LogStatusUnavailable it only sets the status.
+// the run's source 'log' changes, and truncated when a cap cut the result short; for
+// LogStatusUnavailable it only sets the status.
 func (s *Store) SaveLog(ctx context.Context, runID int64, status string,
-	counts map[string]int64, resources []LogResource) error {
+	counts map[string]int64, resources []LogResource, truncated bool) error {
 	assert(status == LogStatusCaptured || status == LogStatusUnavailable, "log status")
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -48,8 +49,9 @@ func (s *Store) SaveLog(ctx context.Context, runID int64, status string,
 	}
 	defer func() { _ = tx.Rollback(ctx) }() // no-op after Commit
 	var ns, stack string
-	err = tx.QueryRow(ctx, `UPDATE runs SET log_status = $2 WHERE id = $1
-		RETURNING namespace, stack_name`, runID, status).Scan(&ns, &stack)
+	err = tx.QueryRow(ctx, `UPDATE runs SET log_status = $2, log_truncated = $3 WHERE id = $1
+		RETURNING namespace, stack_name`, runID, status,
+		truncated && status == LogStatusCaptured).Scan(&ns, &stack)
 	if err != nil {
 		return fmt.Errorf("save log %d: %w", runID, err)
 	}

@@ -1,0 +1,97 @@
+Installing dependencies...
+
+Finished installing dependencies
+
+Updating (prod):
+~ pulumi:pulumi:Stack: (refresh)
+    [urn=urn:pulumi:prod::example-infra::pulumi:pulumi:Stack::example-infra-prod]
+    --outputs:--
+    accountId: "123456789012"
+    region   : "eu-north-1"
+Compiling the program ...
+Finished compiling
+  pulumi:pulumi:Stack: (same)
+    [urn=urn:pulumi:prod::example-infra::pulumi:pulumi:Stack::example-infra-prod]
+    ~ aws:iam/userPolicy:UserPolicy: (update)
+        [id=pulumi-operator-ui:pulumi-operator-ui-s3-history]
+        [urn=urn:pulumi:prod::example-infra::aws:iam/userPolicy:UserPolicy::pulumi-operator-ui]
+        [provider=urn:pulumi:prod::example-infra::pulumi:providers:aws::default_7_48_0::00000000-0000-0000-0000-000000000000]
+      ~ policy: (json) {
+          ~ Statement: [
+                [0]: {
+                        Action   : "*"
+                        Condition: {
+                            BoolIfExists: {
+                                aws:ViaAWSService: "false"
+                            }
+                            NotIpAddress: {
+                                aws:SourceIp: "[secret]"
+                            }
+                        }
+                        Effect   : "Deny"
+                        Resource : "*"
+                    }
+              ~ [1]: {
+                        Action   : "s3:ListBucket"
+                        Condition: {
+                            StringLike: {
+                                s3:prefix: "pulumi/example/.pulumi/history/*"
+                            }
+                        }
+                        Effect   : "Allow"
+                        Resource : "arn:aws:s3:::state-bucket"
+                      + Sid      : "ListHistory"
+                    }
+              ~ [2]: {
+                        Action  : "s3:GetObject"
+                        Effect  : "Allow"
+                        Resource: "arn:aws:s3:::state-bucket/pulumi/example/.pulumi/history/*/*.history.json"
+                      + Sid     : "ReadHistoryFiles"
+                    }
+            ]
+            Version  : "2012-10-17"
+        }
+        --outputs:--
+      ~ policy    : (json) {
+          ~ Statement: [
+                [0]: {
+                        Action   : "*"
+                        Condition: {
+                            BoolIfExists: {
+                                aws:ViaAWSService: "false"
+                            }
+                            NotIpAddress: {
+                                aws:SourceIp: "[secret]"
+                            }
+                        }
+                        Effect   : "Deny"
+                        Resource : "*"
+                    }
+              ~ [1]: {
+                        Action   : "s3:ListBucket"
+                        Condition: {
+                            StringLike: {
+                                s3:prefix: "pulumi/example/.pulumi/history/*"
+                            }
+                        }
+                        Effect   : "Allow"
+                        Resource : "arn:aws:s3:::state-bucket"
+                      + Sid      : "ListHistory"
+                    }
+              ~ [2]: {
+                        Action  : "s3:GetObject"
+                        Effect  : "Allow"
+                        Resource: "arn:aws:s3:::state-bucket/pulumi/example/.pulumi/history/*/*.history.json"
+                      + Sid     : "ReadHistoryFiles"
+                    }
+            ]
+            Version  : "2012-10-17"
+        }
+    --outputs:--
+    accountId: "123456789012"
+    region   : "eu-north-1"
+Resources:
+    ~ 1 updated
+    116 unchanged
+
+Duration: 21s

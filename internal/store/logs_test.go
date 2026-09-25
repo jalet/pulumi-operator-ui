@@ -65,7 +65,7 @@ func TestSaveLogCaptured(t *testing.T) {
 	res := []LogResource{{Op: "update", Type: "aws:iam/userPolicy:UserPolicy", Name: "p",
 		URN: "urn:pulumi:prod::x::aws:iam/userPolicy:UserPolicy::p", Diff: "+ Sid: \"A\""}}
 	must(t, s.SaveLog(t.Context(), id, LogStatusCaptured,
-		map[string]int64{"update": 1, "same": 3}, res))
+		map[string]int64{"update": 1, "same": 3}, res, false))
 	got, err := s.GetRun(t.Context(), id)
 	must(t, err)
 	if got.LogStatus != LogStatusCaptured {
@@ -92,7 +92,7 @@ func TestSaveLogUnavailable(t *testing.T) {
 	s, _ := newTestStore(t)
 	mustUpsert(t, s, finished("u1", _t0))
 	id := getRunByName(t, s, "ns", "u1").ID
-	must(t, s.SaveLog(t.Context(), id, LogStatusUnavailable, nil, nil))
+	must(t, s.SaveLog(t.Context(), id, LogStatusUnavailable, nil, nil, false))
 	got, err := s.GetRun(t.Context(), id)
 	must(t, err)
 	if got.LogStatus != LogStatusUnavailable || got.LogChanges != nil || got.Resources != nil {
@@ -104,11 +104,44 @@ func TestCapturedStatusSurvivesLaterUpserts(t *testing.T) {
 	s, _ := newTestStore(t)
 	mustUpsert(t, s, finished("u1", _t0))
 	id := getRunByName(t, s, "ns", "u1").ID
-	must(t, s.SaveLog(t.Context(), id, LogStatusCaptured, map[string]int64{"same": 1}, nil))
+	must(t, s.SaveLog(t.Context(), id, LogStatusCaptured, map[string]int64{"same": 1}, nil, false))
 	mustUpsert(t, s, finished("u1", _t0))
 	got, err := s.GetRun(t.Context(), id)
 	must(t, err)
 	if got.LogStatus != LogStatusCaptured {
 		t.Fatalf("status = %q after re-upsert", got.LogStatus)
+	}
+}
+
+// The stack timeline renders up to 50 runs and live-refreshes; only the run page needs the
+// diffs, so list reads must not carry them.
+func TestListRunsOmitsResources(t *testing.T) {
+	s, _ := newTestStore(t)
+	mustUpsert(t, s, finished("u1", _t0))
+	id := getRunByName(t, s, "ns", "u1").ID
+	must(t, s.SaveLog(t.Context(), id, LogStatusCaptured, map[string]int64{"update": 1},
+		[]LogResource{{Op: "update", Type: "a:b/c:D", Name: "x", Diff: "~ k: 1 => 2"}}, false))
+	runs, _, err := s.ListRuns(t.Context(), "ns", "s", RunFilter{}, nil, 10)
+	must(t, err)
+	if len(runs) != 1 || runs[0].Resources != nil || runs[0].LogChanges["update"] != 1 {
+		t.Fatalf("list run = %+v, want counts without resources", runs)
+	}
+	got, err := s.GetRun(t.Context(), id)
+	must(t, err)
+	if len(got.Resources) != 1 {
+		t.Fatalf("GetRun resources = %d, want 1", len(got.Resources))
+	}
+}
+
+func TestSaveLogKeepsTruncation(t *testing.T) {
+	s, _ := newTestStore(t)
+	mustUpsert(t, s, finished("u1", _t0))
+	id := getRunByName(t, s, "ns", "u1").ID
+	must(t, s.SaveLog(t.Context(), id, LogStatusCaptured, nil,
+		[]LogResource{{Op: "create", Name: "x"}}, true))
+	got, err := s.GetRun(t.Context(), id)
+	must(t, err)
+	if !got.LogTruncated {
+		t.Fatal("LogTruncated = false, want true")
 	}
 }

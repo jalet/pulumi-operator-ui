@@ -1,0 +1,14 @@
+Installing dependencies...
+
+Finished installing dependencies
+
+Previewing update (prod):
+~ pulumi:pulumi:Stack: (refresh)
+    [urn=urn:pulumi:prod::example-infra::pulumi:pulumi:Stack::example-infra-prod]
+Compiling the program ...
+Finished compiling
+@ previewing update....
+  pulumi:pulumi:Stack: (same)
+    [urn=urn:pulumi:prod::example-infra::pulumi:pulumi:Stack::example-infra-prod]
+Resources:
+    117 unchanged

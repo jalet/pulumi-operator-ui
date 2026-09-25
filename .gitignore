@@ -3,3 +3,6 @@
 *.test
 /.envtest/
 /.superpowers/
+
+# Engine log fixtures (a global *.log ignore would otherwise drop them).
+!/internal/logs/testdata/*.log

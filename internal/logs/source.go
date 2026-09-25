@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"time"
 
@@ -15,8 +16,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-// logBytesMax bounds how much of a pod log one capture reads.
-const logBytesMax = 4 << 20
+// logBytesMax bounds how much of a pod log one capture reads; a var so tests can shrink it.
+var logBytesMax = 4 << 20
 
 // Capture outcomes that are final rather than worth a retry.
 var (
@@ -57,9 +58,15 @@ func classify(err error) error {
 	}
 }
 
-// engineLines returns the pulumi-logger messages stamped within [from, to], stopping at the
-// agent's "<op> completed" line, the first line after to, or bytesMax bytes read.
-func engineLines(r io.Reader, from, to time.Time, bytesMax int) ([]string, bool, error) {
+// _completed is the agent's end-of-run line. Other server lines also end in "completed"
+// (for example "installation completed" during workspace setup), so match the ops only.
+var _completed = regexp.MustCompile(`^(up|preview|refresh|destroy) completed$`)
+
+// engineLines returns the pulumi-logger messages stamped within [from, to] for the run that
+// started at start. It stops at the run's "<op> completed" line, the first line after to, or
+// bytesMax bytes read. A completed line stamped before start ends the previous run on the
+// same workspace, so anything collected before it is dropped.
+func engineLines(r io.Reader, from, start, to time.Time, bytesMax int) ([]string, bool, error) {
 	var out []string
 	read := 0
 	sc := bufio.NewScanner(r)
@@ -90,7 +97,11 @@ func engineLines(r io.Reader, from, to time.Time, bytesMax int) ([]string, bool,
 		case "pulumi":
 			out = append(out, parts[3])
 		case "server":
-			if msg, _, _ := strings.Cut(parts[3], "\t"); strings.HasSuffix(msg, " completed") {
+			if msg, _, _ := strings.Cut(parts[3], "\t"); _completed.MatchString(msg) {
+				if at.Before(start) {
+					out = out[:0]
+					continue
+				}
 				return out, false, nil
 			}
 		}

@@ -18,6 +18,7 @@ type saved struct {
 	status    string
 	counts    map[string]int64
 	resources []store.LogResource
+	truncated bool
 }
 
 type fakeStore struct {
@@ -39,10 +40,10 @@ func (f *fakeStore) PendingLogs(context.Context, int) ([]store.LogJob, error) {
 }
 
 func (f *fakeStore) SaveLog(_ context.Context, id int64, status string, c map[string]int64,
-	r []store.LogResource) error {
+	r []store.LogResource, truncated bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.saves[id] = saved{status, c, r}
+	f.saves[id] = saved{status, c, r, truncated}
 	return nil
 }
 
@@ -146,5 +147,48 @@ func TestCaptureOldPendingIsUnavailable(t *testing.T) {
 	newCapturer(st, src, _t0.Add(25*time.Hour)).tick(t.Context())
 	if st.saves[1].status != store.LogStatusUnavailable || src.calls != 0 {
 		t.Fatalf("saved %+v calls %d", st.saves[1], src.calls)
+	}
+}
+
+type stallSource struct{}
+
+func (stallSource) Stream(ctx context.Context, _, _ string, _ time.Time) (io.ReadCloser, error) {
+	<-ctx.Done() // a log proxy that never answers
+	return nil, ctx.Err()
+}
+
+func TestCaptureStalledStreamTimesOut(t *testing.T) {
+	defer func(d time.Duration) { captureTimeout = d }(captureTimeout)
+	captureTimeout = 50 * time.Millisecond
+	st := &fakeStore{jobs: []store.LogJob{job(1, _t0)}, saves: map[int64]saved{}}
+	c := newCapturer(st, stallSource{}, _t0.Add(time.Second))
+	done := make(chan struct{})
+	go func() { c.tick(t.Context()); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("tick blocked on a stalled log stream")
+	}
+	if _, saved := st.saves[1]; saved {
+		t.Fatal("a timeout inside the retry window must retry, not give up")
+	}
+}
+
+func TestCaptureMarksReadCapTruncation(t *testing.T) {
+	defer func(n int) { logBytesMax = n }(logBytesMax)
+	var b strings.Builder
+	b.WriteString(kline(_t0.Add(-20*time.Second), "pulumi", "    + a:b/c:D: (create)"))
+	b.WriteString(kline(_t0.Add(-20*time.Second), "pulumi", "        [urn=urn:pulumi:prod::p::a:b/c:D::x]"))
+	for range 50 {
+		b.WriteString(kline(_t0.Add(-20*time.Second), "pulumi", "      k: \""+strings.Repeat("v", 80)+"\""))
+	}
+	logBytesMax = b.Len() / 2 // the summary is never reached
+	st := &fakeStore{jobs: []store.LogJob{job(1, _t0)}, saves: map[int64]saved{}}
+	src := &fakeSource{body: map[string]string{"prod-workspace-0": b.String()}}
+	newCapturer(st, src, _t0.Add(time.Second)).tick(t.Context())
+	got := st.saves[1]
+	if got.status != store.LogStatusCaptured || !got.truncated || len(got.resources) != 1 ||
+		!got.resources[0].Truncated {
+		t.Fatalf("saved %+v, want captured, truncated, last resource marked", got)
 	}
 }

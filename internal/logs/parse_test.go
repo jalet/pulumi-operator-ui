@@ -172,3 +172,24 @@ func TestParseCaps(t *testing.T) {
 		t.Errorf("total diff bytes = %d, want <= %d", total, runBytesMax)
 	}
 }
+
+// A refresh entry prints its changes after --outputs:--, as the real Stack refresh in the
+// captured logs does; for refresh that marker must not end the block.
+func TestParseRefreshDriftAfterOutputs(t *testing.T) {
+	got := Parse([]string{
+		"~ aws:s3/bucket:Bucket: (refresh)",
+		"    [urn=urn:pulumi:prod::p::aws:s3/bucket:Bucket::logs]",
+		"    --outputs:--",
+		"  ~ tags: {",
+		"      + owner: \"console\"",
+		"    }",
+		"Compiling the program ...",
+	})
+	if len(got.Resources) != 1 || got.Resources[0].Op != "refresh" ||
+		!strings.Contains(got.Resources[0].Diff, `+ owner: "console"`) {
+		t.Fatalf("resources = %+v", got.Resources)
+	}
+	if strings.Contains(got.Resources[0].Diff, "--outputs:--") {
+		t.Error("diff keeps the outputs marker")
+	}
+}

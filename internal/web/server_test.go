@@ -708,3 +708,13 @@ func TestRunPageDecodesOperatorMessage(t *testing.T) {
 		t.Fatal("operator message not decoded")
 	}
 }
+
+func TestRunPageTruncatedNote(t *testing.T) {
+	r := sampleReader()
+	r.runs[0].LogStatus, r.runs[0].LogTruncated = store.LogStatusCaptured, true
+	r.runs[0].Resources = []store.LogResource{{Op: "create", Type: "a:b/c:D", Name: "x"}}
+	_, body := get(t, newServer(t, r, nil), "/runs/7")
+	if !strings.Contains(body, "The change list is incomplete") {
+		t.Fatal("truncation note missing")
+	}
+}

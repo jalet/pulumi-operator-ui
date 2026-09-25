@@ -60,13 +60,20 @@ LEFT JOIN LATERAL (
     WHERE r.namespace = s.namespace AND r.stack_name = s.name AND r.type = 'up'
     ORDER BY COALESCE(r.started_at, r.observed_at) DESC, r.id DESC LIMIT 1) u ON true`
 
-const _runSelect = `
+// _runSelect reads runs for lists; _runDetailSelect adds the engine log's resource diffs,
+// which can reach 1 MiB per run and are only shown on the run page.
+const (
+	_runSelectHead = `
 SELECT id, namespace, update_name, COALESCE(uid, ''), stack_name, type, commit, commit_source,
-       state, message, started_at, ended_at, observed_at, c.counts, log_status, lc.counts,
-       lc.resources
+       state, message, started_at, ended_at, observed_at, c.counts, log_status, log_truncated,
+       lc.counts, `
+	_runSelectFrom = `
 FROM runs
 LEFT JOIN run_changes c ON c.run_id = runs.id AND c.source = 's3'
 LEFT JOIN run_changes lc ON lc.run_id = runs.id AND lc.source = 'log'`
+	_runSelect       = _runSelectHead + `NULL::jsonb` + _runSelectFrom
+	_runDetailSelect = _runSelectHead + `lc.resources` + _runSelectFrom
+)
 
 // ListStacks returns active (not soft-deleted) stacks ordered by namespace and name.
 func (s *Store) ListStacks(ctx context.Context) ([]StackSummary, error) {
@@ -192,7 +199,7 @@ func typeStrings(ts []RunType) []string {
 
 // GetRun returns one run by id.
 func (s *Store) GetRun(ctx context.Context, id int64) (Run, error) {
-	rows, err := s.pool.Query(ctx, _runSelect+` WHERE id = $1`, id)
+	rows, err := s.pool.Query(ctx, _runDetailSelect+` WHERE id = $1`, id)
 	if err != nil {
 		return Run{}, fmt.Errorf("get run: %w", err)
 	}
@@ -211,7 +218,7 @@ func scanRun(row pgx.CollectableRow) (Run, error) {
 	var counts, logCounts, resources []byte
 	err := row.Scan(&r.ID, &r.Namespace, &r.UpdateName, &r.UID, &r.StackName, &r.Type,
 		&r.Commit, &r.CommitSource, &r.State, &r.Message, &r.StartedAt, &r.EndedAt,
-		&r.ObservedAt, &counts, &r.LogStatus, &logCounts, &resources)
+		&r.ObservedAt, &counts, &r.LogStatus, &r.LogTruncated, &logCounts, &resources)
 	if err != nil {
 		return r, err
 	}

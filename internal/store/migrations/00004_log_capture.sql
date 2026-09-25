@@ -4,8 +4,12 @@
 -- log was gone or unreadable.
 ALTER TABLE runs ADD COLUMN log_status text NOT NULL DEFAULT ''
     CHECK (log_status IN ('', 'pending', 'captured', 'unavailable'));
+-- log_truncated: a cap was hit (log bytes, diff bytes or resource count), so the stored
+-- resource list is incomplete.
+ALTER TABLE runs ADD COLUMN log_truncated boolean NOT NULL DEFAULT false;
 CREATE INDEX runs_log_pending ON runs (ended_at) WHERE log_status = 'pending';
 
 -- +goose Down
 DROP INDEX runs_log_pending;
+ALTER TABLE runs DROP COLUMN log_truncated;
 ALTER TABLE runs DROP COLUMN log_status;

@@ -115,8 +115,16 @@ func Parse(lines []string) Result {
 		if trimmed == "" {
 			continue
 		}
-		if trimmed == "--outputs:--" || len(line)-len(trimmed) <= cur.indent {
+		if len(line)-len(trimmed) <= cur.indent {
 			flush()
+			continue
+		}
+		if trimmed == "--outputs:--" {
+			// A refresh prints what drifted as outputs; for other ops the outputs only
+			// repeat the inputs (and a Stack's carry values like the account ID).
+			if cur.res.Op != "refresh" {
+				flush()
+			}
 			continue
 		}
 		cur.diff = append(cur.diff, line)

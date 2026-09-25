@@ -116,6 +116,7 @@ type Run struct {
 	LogStatus    string           // runs.log_status
 	LogChanges   map[string]int64 // change counts from the engine log; nil when not captured
 	Resources    []LogResource    // changed resources from the engine log
+	LogTruncated bool             // the engine log result hit a cap and is incomplete
 }
 
 // Publisher receives a notification after each committed change.

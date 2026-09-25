@@ -25,6 +25,10 @@ const (
 	staleAfter      = 24 * time.Hour   // after ended_at: do not even try
 )
 
+// captureTimeout bounds one capture, so a log stream that stalls cannot hold up the queue;
+// a var so tests can shrink it.
+var captureTimeout = 30 * time.Second
+
 var (
 	_captured = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "pou_logs_captured_total",
@@ -37,7 +41,7 @@ var (
 type Store interface {
 	PendingLogs(ctx context.Context, limit int) ([]store.LogJob, error)
 	SaveLog(ctx context.Context, runID int64, status string, counts map[string]int64,
-		resources []store.LogResource) error
+		resources []store.LogResource, truncated bool) error
 }
 
 // Options configures New.
@@ -147,7 +151,12 @@ func (c *Capturer) capture(ctx context.Context, j store.LogJob) {
 			return
 		}
 		result := "captured"
+		if truncated && len(res.Resources) > 0 {
+			// The read stopped mid-log, so the last resource's diff may be cut.
+			res.Resources[len(res.Resources)-1].Truncated = true
+		}
 		if truncated || res.Truncated {
+			res.Truncated = true
 			result = "truncated"
 		}
 		c.save(ctx, j, store.LogStatusCaptured, res, result)
@@ -155,13 +164,15 @@ func (c *Capturer) capture(ctx context.Context, j store.LogJob) {
 }
 
 func (c *Capturer) read(ctx context.Context, j store.LogJob) ([]string, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, captureTimeout)
+	defer cancel()
 	from, to := j.StartedAt.Add(-windowPad), j.EndedAt.Add(windowPad)
 	rc, err := c.o.Source.Stream(ctx, j.Namespace, j.StackName+"-workspace-0", from)
 	if err != nil {
 		return nil, false, err
 	}
 	defer func() { _ = rc.Close() }() // read-only stream
-	lines, truncated, err := engineLines(rc, from, to, logBytesMax)
+	lines, truncated, err := engineLines(rc, from, j.StartedAt, to, logBytesMax)
 	if err != nil {
 		return nil, false, err
 	}
@@ -173,7 +184,8 @@ func (c *Capturer) read(ctx context.Context, j store.LogJob) ([]string, bool, er
 
 func (c *Capturer) save(ctx context.Context, j store.LogJob, status string, res Result,
 	metric string) {
-	if err := c.o.Store.SaveLog(ctx, j.RunID, status, res.Counts, res.Resources); err != nil {
+	if err := c.o.Store.SaveLog(ctx, j.RunID, status, res.Counts, res.Resources,
+		res.Truncated); err != nil {
 		c.o.Log.Error().Err(err).Int64("run", j.RunID).Msg("logs: save")
 		return
 	}
