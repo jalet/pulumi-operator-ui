@@ -61,6 +61,7 @@ mise run test        # unit, envtest and testcontainers tests (needs Docker or P
 mise run vuln        # govulncheck
 mise run chart:test  # helm lint + chart rendering tests
 mise run build       # ko build into the local image store
+mise run css         # rebuild internal/web/static/app.css after changing templates or web/styles
 ```
 
 Run it locally against kind, a throwaway Postgres and the stub IdP:

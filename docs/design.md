@@ -47,6 +47,7 @@ output (the logs) and, for S3 DIY backends, in `.pulumi/history/<project>/<stack
 |---|---|
 | Access to the cluster | Read-only: get/list/watch on stacks and updates (phase 1); phase 2 adds workspaces, pods and get on `pods/log` |
 | Language and UI | Go, `html/template` + htmx, live refresh over SSE; one binary, no Node toolchain |
+| UI styling | Tailwind CSS v4 via its standalone CLI (pinned in mise); the compiled `app.css` is committed and CI checks it is current. Playground brand theme, following the OS light or dark setting; fonts self-hosted |
 | Persistence | PostgreSQL (pgx, embedded migrations). example runs a dedicated CNPG cluster for it |
 | Authentication | Built-in OIDC (go-oidc, x/oauth2), custom CA bundle supported, HMAC-signed session cookie |
 | Authorization | Allowlist on a configurable claim (groups or roles). Everyone on the allowlist sees everything |
