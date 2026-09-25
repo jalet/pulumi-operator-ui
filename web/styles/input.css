@@ -25,6 +25,7 @@
   --color-line: var(--pou-line);
   --color-ink: var(--pou-ink);
   --color-muted: var(--pou-muted);
+  --color-focus: var(--pou-focus);
 }
 
 @layer base {
@@ -32,16 +33,21 @@
     color-scheme: light dark;
     --pou-page: #f6f7f9; --pou-panel: #ffffff; --pou-line: #e3e6eb;
     --pou-ink: #060a17; --pou-muted: #5b6472;
+    /* Light mode needs darker accents than the brand colors for WCAG AA contrast. */
+    --pou-focus: #b35f00;
+    --pou-counter-ok: #1e7a3a; --pou-counter-run: #0b6c9e; --pou-counter-att: #8a6400;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --pou-page: #0a0a0f; --pou-panel: #10131c; --pou-line: #1f2431;
       --pou-ink: #f4f5f7; --pou-muted: #9aa1ad;
+      --pou-focus: #ff9902;
+      --pou-counter-ok: #34a853; --pou-counter-run: #4cc2ff; --pou-counter-att: #fbbc05;
     }
   }
   body { @apply bg-page text-ink font-sans antialiased; }
   a, button {
-    @apply focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-orange;
+    @apply focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus;
   }
   code { @apply font-mono text-[12px]; }
 }
@@ -55,13 +61,13 @@
   }
   .panel { @apply bg-panel border border-line rounded-xl; }
   .counter { @apply bg-panel border border-line rounded-xl px-4 py-3 min-w-24; }
-  .counter-ok { color: #34a853; }
-  .counter-run { color: #4cc2ff; }
-  .counter-att { color: #b88600; }
+  .counter-ok { color: var(--pou-counter-ok); }
+  .counter-run { color: var(--pou-counter-run); }
+  .counter-att { color: var(--pou-counter-att); }
   .chip {
     @apply inline-flex items-center gap-1 rounded-full border border-line px-3 py-0.5 text-xs text-muted hover:text-ink;
   }
-  .chip-on { @apply text-ink border-brand-orange ring-1 ring-inset ring-brand-orange; }
+  .chip-on { @apply text-ink border-focus ring-1 ring-inset ring-focus; }
   .pill {
     @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-px text-[11px] font-bold whitespace-nowrap;
   }
@@ -72,7 +78,6 @@
   .tone-bad { background: rgb(234 67 53 / .12); color: #b3261e; }
   .tone-mute { background: rgb(148 155 168 / .16); color: #4a5361; }
   @media (prefers-color-scheme: dark) {
-    .counter-att { color: #fbbc05; }
     .tone-ok { background: rgb(52 168 83 / .15); color: #5fd07f; }
     .tone-run { background: rgb(76 194 255 / .15); color: #7fd3ff; }
     .tone-att { background: rgb(251 188 5 / .15); color: #fcd15c; }

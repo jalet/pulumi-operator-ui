@@ -2,7 +2,9 @@ package web
 
 import (
 	"io/fs"
+	"math"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -104,4 +106,102 @@ func TestAppJS(t *testing.T) {
 			t.Errorf("app.js uses %s", banned)
 		}
 	}
+}
+
+// contrast is the WCAG 2.2 contrast ratio between two #rgb or #rrggbb colors.
+func contrast(t *testing.T, a, b string) float64 {
+	t.Helper()
+	lum := func(hex string) float64 {
+		h := strings.TrimPrefix(hex, "#")
+		if len(h) == 3 {
+			h = string([]byte{h[0], h[0], h[1], h[1], h[2], h[2]})
+		}
+		if len(h) != 6 {
+			t.Fatalf("bad color %q", hex)
+		}
+		var rgb [3]float64
+		for i := range 3 {
+			v, err := strconv.ParseUint(h[2*i:2*i+2], 16, 8)
+			if err != nil {
+				t.Fatalf("bad color %q", hex)
+			}
+			c := float64(v) / 255
+			if c <= 0.04045 {
+				rgb[i] = c / 12.92
+			} else {
+				rgb[i] = math.Pow((c+0.055)/1.055, 2.4)
+			}
+		}
+		return 0.2126*rgb[0] + 0.7152*rgb[1] + 0.0722*rgb[2]
+	}
+	la, lb := lum(a), lum(b)
+	return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+}
+
+// cssVar returns the first value of a custom property inside the given CSS block.
+func cssVar(t *testing.T, block, name string) string {
+	t.Helper()
+	m := regexp.MustCompile(regexp.QuoteMeta(name) + `:(#[0-9a-fA-F]{3,6})`).FindStringSubmatch(block)
+	if m == nil {
+		t.Fatalf("no %s in %.80q", name, block)
+	}
+	return m[1]
+}
+
+// The light theme must meet WCAG 2.2 AA: counter values are large bold text (3:1, held to
+// 4.5:1 here) and the focus ring is a non-text indicator (3:1). Dark must too.
+func TestPaletteContrast(t *testing.T) {
+	b, err := _static.ReadFile("static/app.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(b)
+	light := cssBlock(t, css, ":root{color-scheme", "}")
+	dark := cssBlock(t, css, "@media (prefers-color-scheme:dark){:root{", "}}")
+
+	lightPage, lightPanel := cssVar(t, light, "--pou-page"), cssVar(t, light, "--pou-panel")
+	darkPage, darkPanel := cssVar(t, dark, "--pou-page"), cssVar(t, dark, "--pou-panel")
+	checks := []struct {
+		name   string
+		fg, bg string
+		min    float64
+	}{
+		{"light focus on page", cssVar(t, light, "--pou-focus"), lightPage, 3},
+		{"light focus on panel", cssVar(t, light, "--pou-focus"), lightPanel, 3},
+		{"dark focus on page", cssVar(t, dark, "--pou-focus"), darkPage, 3},
+	}
+	for _, tone := range []string{"ok", "run", "att"} {
+		checks = append(checks, struct {
+			name   string
+			fg, bg string
+			min    float64
+		}{"light counter-" + tone, cssVar(t, light, "--pou-counter-"+tone), lightPanel, 4.5},
+			struct {
+				name   string
+				fg, bg string
+				min    float64
+			}{"dark counter-" + tone, cssVar(t, dark, "--pou-counter-"+tone), darkPanel, 4.5})
+	}
+	for _, c := range checks {
+		if got := contrast(t, c.fg, c.bg); got < c.min {
+			t.Errorf("%s: %s on %s = %.2f:1, want >= %.1f:1", c.name, c.fg, c.bg, got, c.min)
+		}
+	}
+	if !strings.Contains(css, "outline-color:var(--pou-focus)") {
+		t.Error("focus ring does not use the themed focus color")
+	}
+}
+
+// cssBlock returns the text from start up to the first end after it.
+func cssBlock(t *testing.T, css, start, end string) string {
+	t.Helper()
+	_, rest, ok := strings.Cut(css, start)
+	if !ok {
+		t.Fatalf("compiled CSS lacks %q", start)
+	}
+	block, _, ok := strings.Cut(rest, end)
+	if !ok {
+		t.Fatalf("unterminated block after %q", start)
+	}
+	return block
 }
