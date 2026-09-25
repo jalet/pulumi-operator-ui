@@ -514,11 +514,30 @@ func TestRunPageLayout(t *testing.T) {
 		`<button type="button" class="copy-btn" data-copy="abc">Copy</button>`,
 		`whitespace-pre-wrap break-words`,
 		`message-failed`,
-		"appear here with log capture",
+		"No resource changes recorded for this run.",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("run page lacks %s", want)
 		}
+	}
+}
+
+func TestRunPageNeverStartedFailure(t *testing.T) {
+	r := sampleReader()
+	r.runs[0].State, r.runs[0].StartedAt, r.runs[0].EndedAt = store.RunStateFailed, nil, nil
+	srv := newServer(t, r, nil)
+	for _, path := range []string{"/runs/7", "/stacks/ns/app"} {
+		_, body := get(t, srv, path)
+		if strings.Contains(body, "not started") || !strings.Contains(body, "not recorded") {
+			t.Errorf("%s: a failed run without a start time must read \"not recorded\"", path)
+		}
+	}
+}
+
+func TestRunPageNoPhasePlaceholder(t *testing.T) {
+	_, body := get(t, newServer(t, sampleReader(), nil), "/runs/7")
+	if strings.Contains(body, "phase 2") || strings.Contains(body, "log capture") {
+		t.Error("run page still shows the roadmap placeholder")
 	}
 }
 
@@ -604,7 +623,7 @@ func TestRunPageShowsChanges(t *testing.T) {
 			t.Errorf("run page lacks %q", want)
 		}
 	}
-	if strings.Contains(body, "appear here with log capture") {
+	if strings.Contains(body, "No resource changes recorded") {
 		t.Error("placeholder shown despite changes")
 	}
 }

@@ -53,6 +53,23 @@ func TestStateBadge(t *testing.T) {
 	}
 }
 
+func TestNoStart(t *testing.T) {
+	tests := []struct {
+		give store.RunState
+		want string
+	}{
+		{store.RunStatePending, "not started"},
+		{store.RunStateRunning, "not started"},
+		{store.RunStateSucceeded, "not recorded"},
+		{store.RunStateFailed, "not recorded"},
+	}
+	for _, tt := range tests {
+		if got := noStart(tt.give); got != tt.want {
+			t.Errorf("noStart(%s) = %q, want %q", tt.give, got, tt.want)
+		}
+	}
+}
+
 func TestCountStacks(t *testing.T) {
 	give := []store.StackSummary{
 		{Stack: store.Stack{Ready: true}}, {Stack: store.Stack{Ready: true}},

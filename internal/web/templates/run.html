@@ -13,7 +13,7 @@
   </div>
   <dl class="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-xs">
     <div><dt class="text-muted">Commit</dt><dd class="mt-0.5 flex items-center gap-2">{{template "commit" .}}{{if .Commit}}<button type="button" class="copy-btn" data-copy="{{.Commit}}">Copy</button>{{end}}</dd></div>
-    <div><dt class="text-muted">Started</dt><dd class="mt-0.5">{{if .StartedAt}}<time datetime="{{iso .StartedAt}}">{{.StartedAt.UTC.Format "2006-01-02 15:04:05 UTC"}}</time>{{else}}<span class="text-muted">not started</span>{{end}}</dd></div>
+    <div><dt class="text-muted">Started</dt><dd class="mt-0.5">{{if .StartedAt}}<time datetime="{{iso .StartedAt}}">{{.StartedAt.UTC.Format "2006-01-02 15:04:05 UTC"}}</time>{{else}}<span class="text-muted">{{noStart .State}}</span>{{end}}</dd></div>
     <div><dt class="text-muted">Duration</dt><dd class="mt-0.5">{{with duration .StartedAt .EndedAt}}{{.}}{{else}}<span class="text-muted">-</span>{{end}}</dd></div>
     <div><dt class="text-muted">Stack</dt><dd class="mt-0.5"><a class="hover:underline" href="/stacks/{{.Namespace}}/{{.StackName}}">{{.Namespace}}/{{.StackName}}</a></dd></div>
   </dl>
@@ -24,6 +24,6 @@
 </div>
 <div class="panel p-4">
   <h2 class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">Changes</h2>
-  {{with changeChips .Changes}}<div class="flex flex-wrap items-center gap-2">{{range .}}<span class="pill tone-{{.Tone}}">{{.Count}} {{.Label}}</span>{{end}}<span class="text-xs text-muted">from Pulumi history</span></div>{{else}}{{if .Changes}}<p class="text-sm text-muted">No changes, from Pulumi history.</p>{{else}}<p class="rounded-md border border-dashed border-line p-3 text-center text-xs text-muted">Resource changes and the engine log appear here with log capture (phase 2)</p>{{end}}{{end}}
+  {{with changeChips .Changes}}<div class="flex flex-wrap items-center gap-2">{{range .}}<span class="pill tone-{{.Tone}}">{{.Count}} {{.Label}}</span>{{end}}<span class="text-xs text-muted">from Pulumi history</span></div>{{else}}{{if .Changes}}<p class="text-sm text-muted">No changes, from Pulumi history.</p>{{else}}<p class="rounded-md border border-dashed border-line p-3 text-center text-xs text-muted">No resource changes recorded for this run.</p>{{end}}{{end}}
 </div>
 </section>{{end}}

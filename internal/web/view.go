@@ -45,6 +45,20 @@ func stateBadge(st store.RunState) badge {
 	}
 }
 
+// noStart is what a run without a start time shows. A pending or running run has not
+// started yet; a finished one did run, but the operator recorded no start time, which
+// happens when an update fails within its first second.
+func noStart(st store.RunState) string {
+	switch st {
+	case store.RunStatePending, store.RunStateRunning:
+		return "not started"
+	case store.RunStateSucceeded, store.RunStateFailed:
+		return "not recorded"
+	default:
+		panic("invariant violated: unknown run state " + string(st))
+	}
+}
+
 type counters struct{ Total, Ready, Reconciling, Attention int }
 
 // countStacks tallies the list page counters; Needs attention is Stalled plus Not ready.

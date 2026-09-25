@@ -52,6 +52,7 @@ func parsePages(now func() time.Time) map[string]*template.Template {
 		"shortCommit":   shortCommit,
 		"health":        health,
 		"stateBadge":    stateBadge,
+		"noStart":       noStart,
 		"successRate":   successRate,
 		"changeChips":   changeChips,
 		"changeSummary": changeSummary,

@@ -35,7 +35,7 @@
   <td class="px-3 py-2.5">{{.Type}}</td>
   <td class="px-3 py-2.5">{{template "pill" (stateBadge .State)}}</td>
   <td class="px-3 py-2.5">{{template "commit" .}}</td>
-  <td class="px-3 py-2.5 whitespace-nowrap">{{if .StartedAt}}<time datetime="{{iso .StartedAt}}">{{age .StartedAt}}</time>{{else}}<span class="text-muted">not started</span>{{end}}</td>
+  <td class="px-3 py-2.5 whitespace-nowrap">{{if .StartedAt}}<time datetime="{{iso .StartedAt}}">{{age .StartedAt}}</time>{{else}}<span class="text-muted">{{noStart .State}}</span>{{end}}</td>
   <td class="px-3 py-2.5">{{duration .StartedAt .EndedAt}}</td>
   <td class="px-3 py-2.5 font-mono text-xs whitespace-nowrap">{{changeSummary .Changes}}</td>
 </tr>{{end}}
