@@ -3,9 +3,12 @@ package web
 import (
 	"bytes"
 	"cmp"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"net/http"
 	"strconv"
 	"strings"
@@ -33,7 +36,17 @@ var _pageFiles = map[string][]string{
 }
 
 func parsePages(now func() time.Time) map[string]*template.Template {
+	assets := assetURLs()
 	funcs := template.FuncMap{
+		// asset links a static file with a content version, because static files are served
+		// as immutable: an unversioned URL would keep an old copy cached for a year.
+		"asset": func(name string) string {
+			u, ok := assets[name]
+			if !ok {
+				panic("invariant violated: unknown static asset " + name)
+			}
+			return u
+		},
 		"age":         func(t any) string { return age(now(), t) },
 		"iso":         func(t any) string { return timeOf(t).UTC().Format(time.RFC3339) },
 		"shortCommit": shortCommit,
@@ -52,6 +65,27 @@ func parsePages(now func() time.Time) map[string]*template.Template {
 		pages[name] = template.Must(template.New(name).Funcs(funcs).ParseFS(_templates, files...))
 	}
 	return pages
+}
+
+// assetURLs maps each top-level static file to /static/<name>?v=<first 12 hex of sha256>.
+func assetURLs() map[string]string {
+	entries, err := fs.ReadDir(_static, "static")
+	if err != nil {
+		panic("invariant violated: embedded static: " + err.Error())
+	}
+	urls := make(map[string]string, len(entries))
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		b, err := _static.ReadFile("static/" + e.Name())
+		if err != nil {
+			panic("invariant violated: embedded static " + e.Name() + ": " + err.Error())
+		}
+		sum := sha256.Sum256(b)
+		urls[e.Name()] = "/static/" + e.Name() + "?v=" + hex.EncodeToString(sum[:])[:12]
+	}
+	return urls
 }
 
 // render executes into a buffer first so a template error becomes a clean 500 instead

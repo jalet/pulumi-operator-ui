@@ -1,8 +1,11 @@
 package web
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"io/fs"
 	"math"
+	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
@@ -204,4 +207,29 @@ func cssBlock(t *testing.T, css, start, end string) string {
 		t.Fatalf("unterminated block after %q", start)
 	}
 	return block
+}
+
+// Static files are cached as immutable, so every page must link them with a version that
+// changes whenever the file does; otherwise browsers keep an old stylesheet for a year.
+func TestAssetURLsAreVersioned(t *testing.T) {
+	srv := newServer(t, sampleReader(), nil)
+	_, body := get(t, srv, "/")
+	for _, name := range []string{"app.css", "app.js", "htmx.min.js", "sse.js"} {
+		b, err := _static.ReadFile("static/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(b)
+		want := "/static/" + name + "?v=" + hex.EncodeToString(sum[:])[:12] + `"`
+		if !strings.Contains(body, want) {
+			t.Errorf("page does not link %s", want)
+		}
+		if strings.Contains(body, `"/static/`+name+`"`) {
+			t.Errorf("page links unversioned /static/%s", name)
+		}
+	}
+	resp, _ := get(t, srv, "/static/app.css?v=anything")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("versioned URL = %d", resp.StatusCode)
+	}
 }

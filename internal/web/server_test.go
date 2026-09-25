@@ -175,7 +175,7 @@ func TestStackListHasSSEWiring(t *testing.T) {
 		`hx-trigger="sse:stack-any delay:500ms"`,
 		`hx-trigger="sse:` + events.StackEventName("ns", "app") + `"`,
 		`hx-get="/fragments/stacks/ns/app"`,
-		`<script src="/static/htmx.min.js"`,
+		`<script src="/static/htmx.min.js?v=`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body lacks %s", want)

@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false,"selfRequestsOnly":true}'>
 <title>{{block "title" .}}Pulumi stacks{{end}}</title>
-<link rel="stylesheet" href="/static/app.css">
-<script src="/static/htmx.min.js" defer></script>
-<script src="/static/sse.js" defer></script>
-<script src="/static/app.js" defer></script>
+<link rel="stylesheet" href="{{asset "app.css"}}">
+<script src="{{asset "htmx.min.js"}}" defer></script>
+<script src="{{asset "sse.js"}}" defer></script>
+<script src="{{asset "app.js"}}" defer></script>
 </head>
 <body hx-ext="sse" sse-connect="/events" class="min-h-screen">
 <div class="brand-bar"></div>
