@@ -23,10 +23,11 @@ var _static embed.FS
 // Each page parses the shared layout plus the files whose fragments it uses; a later
 // file's "title" and "content" override an earlier one's.
 var _pageFiles = map[string][]string{
-	"stacks": {"templates/layout.html", "templates/stacks.html"},
-	"stack":  {"templates/layout.html", "templates/stacks.html", "templates/stack.html"},
-	"run":    {"templates/layout.html", "templates/run.html"},
-	"error":  {"templates/layout.html", "templates/error.html"},
+	"stacks": {"templates/layout.html", "templates/components.html", "templates/stacks.html"},
+	"stack": {"templates/layout.html", "templates/components.html", "templates/stacks.html",
+		"templates/stack.html"},
+	"run":   {"templates/layout.html", "templates/components.html", "templates/run.html"},
+	"error": {"templates/layout.html", "templates/components.html", "templates/error.html"},
 }
 
 func parsePages(now func() time.Time) map[string]*template.Template {

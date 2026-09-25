@@ -1,0 +1,5 @@
+{{define "pill"}}<span class="pill tone-{{.Tone}}"><span class="dot{{if eq .Tone "run"}} pulse-run{{end}}"></span>{{.Label}}</span>{{end}}
+
+{{define "counter"}}<div class="counter"><div class="text-xl font-bold leading-tight{{if .Tone}} counter-{{.Tone}}{{end}}">{{.Value}}</div><div class="text-xs text-muted">{{.Label}}</div></div>{{end}}
+
+{{define "chip"}}<a class="chip{{if .On}} chip-on{{end}}" href="{{.Href}}"{{if .On}} aria-current="true"{{end}}>{{.Label}}</a>{{end}}

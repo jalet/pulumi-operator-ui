@@ -8,14 +8,16 @@
 <link rel="stylesheet" href="/static/app.css">
 <script src="/static/htmx.min.js" defer></script>
 <script src="/static/sse.js" defer></script>
+<script src="/static/app.js" defer></script>
 </head>
-<body hx-ext="sse" sse-connect="/events">
+<body hx-ext="sse" sse-connect="/events" class="min-h-screen">
+<div class="brand-bar"></div>
 <div hidden hx-get="/fragments/session" hx-trigger="sse:session-expired" hx-swap="none"></div>
-<header class="top">
-  <a class="brand" href="/">Pulumi stacks</a>
-  <form method="post" action="/auth/logout"><button type="submit">Sign out</button></form>
+<header class="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
+  <a class="text-sm font-bold tracking-tight" href="/">Pulumi stacks</a>
+  <form method="post" action="/auth/logout"><button type="submit" class="text-sm text-muted hover:text-ink">Sign out</button></form>
 </header>
-<main>
+<main class="mx-auto max-w-6xl px-4 pb-12">
 {{block "content" .}}{{end}}
 </main>
 </body>

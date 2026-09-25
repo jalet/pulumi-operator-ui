@@ -5,6 +5,7 @@ ko = "0.19.1"
 helm = "4.3.0"
 "go:golang.org/x/vuln/cmd/govulncheck" = "latest"
 "go:sigs.k8s.io/controller-runtime/tools/setup-envtest" = "latest"
+"github:tailwindlabs/tailwindcss" = { version = "4.3.3", bin = "tailwindcss" }
 
 [env]
 ENVTEST_K8S_VERSION = "1.37.x"
@@ -31,6 +32,14 @@ run = '''
 helm lint --strict charts/pulumi-operator-ui -f test/chart/testdata/minimal.yaml
 go test ./test/chart/...
 '''
+
+[tasks.css]
+description = "Compile Tailwind into internal/web/static/app.css"
+run = "tailwindcss -i web/styles/input.css -o internal/web/static/app.css --minify"
+
+[tasks."css:check"]
+description = "Fail if the committed CSS is stale"
+run = "mise run css && git diff --exit-code -- internal/web/static/app.css"
 
 [tasks.build]
 run = "ko build --local ./cmd/pulumi-operator-ui"
