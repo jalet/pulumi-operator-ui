@@ -7,7 +7,6 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -32,6 +31,8 @@ type Reader interface {
 	GetStack(ctx context.Context, namespace, name string) (store.StackSummary, error)
 	ListRuns(ctx context.Context, namespace, name string, f store.RunFilter,
 		before *store.Cursor, limit int) ([]store.Run, *store.Cursor, error)
+	ListTimeline(ctx context.Context, namespace, name string, before *store.Cursor,
+		limit int) ([]store.Run, []store.Run, *store.Cursor, error)
 	GetRun(ctx context.Context, id int64) (store.Run, error)
 	StackStats(ctx context.Context, namespace, name string, f store.RunFilter,
 		since time.Time) (store.StackStats, error)
@@ -66,16 +67,13 @@ type server struct {
 }
 
 type stackPage struct {
-	Stack store.StackSummary
-	Runs  []store.Run
-	Next  *store.Cursor
-	Live  bool   // first page only: older pages do not auto-refresh
-	Query string // canonical ?types= value, "" for the default set
-	Stats store.StackStats
-	Chips []chip
-	// AddPreviews links to the same page with previews added; "" when they are shown.
-	AddPreviews string
-	S3On        bool // S3 history is enabled; a stored s3_error is stale otherwise
+	Stack  store.StackSummary
+	Days   []railDay
+	Next   *store.Cursor
+	Live   bool // first page only: older pages do not auto-refresh
+	Expand bool // ?previews=all: every preview is its own node
+	Stats  store.StackStats
+	S3On   bool // S3 history is enabled; a stored s3_error is stale otherwise
 }
 
 // statsWindow is how far back the stack header counts runs.
@@ -234,13 +232,8 @@ func (s *server) stackPage(w http.ResponseWriter, r *http.Request) {
 		}
 		before = c
 	}
-	types, err := parseTypes(r.URL.Query().Get("types"))
-	if err != nil {
-		s.renderError(w, r, http.StatusBadRequest, "Bad request", "Unknown run type.")
-		return
-	}
 	page, err := s.loadStackPage(r.Context(), r.PathValue("ns"), r.PathValue("name"), before,
-		types)
+		r.URL.Query().Get("previews") == "all")
 	if err != nil {
 		s.storeError(w, r, err)
 		return
@@ -249,43 +242,33 @@ func (s *server) stackPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) stackRuns(w http.ResponseWriter, r *http.Request) {
-	types, err := parseTypes(r.URL.Query().Get("types"))
-	if err != nil {
-		s.renderError(w, r, http.StatusBadRequest, "Bad request", "Unknown run type.")
-		return
-	}
 	page, err := s.loadStackPage(r.Context(), r.PathValue("ns"), r.PathValue("name"), nil,
-		types)
+		r.URL.Query().Get("previews") == "all")
 	if err != nil {
 		s.storeError(w, r, err)
 		return
 	}
-	s.render(w, r, "stack", "run-rows", page, http.StatusOK)
+	s.render(w, r, "stack", "rail", page, http.StatusOK)
 }
 
 func (s *server) loadStackPage(ctx context.Context, ns, name string, before *store.Cursor,
-	types []store.RunType) (stackPage, error) {
+	expand bool) (stackPage, error) {
 	st, err := s.store.GetStack(ctx, ns, name)
 	if err != nil {
 		return stackPage{}, err
 	}
-	f := store.RunFilter{Types: types}
-	runs, next, err := s.store.ListRuns(ctx, ns, name, f, before, runsPageSize)
+	changes, previews, next, err := s.store.ListTimeline(ctx, ns, name, before, runsPageSize)
 	if err != nil {
 		return stackPage{}, err
 	}
-	stats, err := s.store.StackStats(ctx, ns, name, f, s.now().Add(-statsWindow))
+	stats, err := s.store.StackStats(ctx, ns, name, store.RunFilter{Types: store.StateChangeTypes},
+		s.now().Add(-statsWindow))
 	if err != nil {
 		return stackPage{}, err
 	}
-	base := "/stacks/" + ns + "/" + name
-	page := stackPage{Stack: st, Runs: runs, Next: next, Live: before == nil,
-		Query: typesQuery(types), Stats: stats, Chips: typeChips(base, types, stats),
-		S3On: s.s3Interval > 0}
-	if !slices.Contains(f.EffectiveTypes(), store.RunTypePreview) {
-		page.AddPreviews = withTypes(base, toggleType(types, store.RunTypePreview))
-	}
-	return page, nil
+	return stackPage{Stack: st, Days: buildRail(changes, previews, s.now(), s.loc, expand),
+		Next: next, Live: before == nil, Expand: expand, Stats: stats,
+		S3On: s.s3Interval > 0}, nil
 }
 
 func (s *server) runPage(w http.ResponseWriter, r *http.Request) {
@@ -295,7 +278,10 @@ func (s *server) runPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) runRow(w http.ResponseWriter, r *http.Request) {
-	s.withRun(w, r, func(run store.Run) { s.render(w, r, "stack", "run-row", run, http.StatusOK) })
+	s.withRun(w, r, func(run store.Run) {
+		node := &railNode{Run: run, Drift: run.Type == store.RunTypePreview && drift(run)}
+		s.render(w, r, "stack", "rail-node", node, http.StatusOK)
+	})
 }
 
 func (s *server) runHeader(w http.ResponseWriter, r *http.Request) {

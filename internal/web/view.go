@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/url"
 	"slices"
@@ -148,61 +147,6 @@ func buildListPage(all []store.StackSummary, ns string) listPage {
 	}
 }
 
-var errBadTypes = errors.New("invalid types")
-
-// parseTypes parses ?types=: lowercase known types, comma-separated, duplicates collapsed,
-// empty items ignored. It returns nil (the default set) for an empty or default value.
-func parseTypes(raw string) ([]store.RunType, error) {
-	var set []store.RunType
-	for part := range strings.SplitSeq(raw, ",") {
-		if part == "" {
-			continue
-		}
-		t := store.RunType(part)
-		if !slices.Contains(store.AllRunTypes, t) {
-			return nil, fmt.Errorf("%w: %q", errBadTypes, part)
-		}
-		if !slices.Contains(set, t) {
-			set = append(set, t)
-		}
-	}
-	return canonical(set), nil
-}
-
-// canonical orders ts as store.AllRunTypes does and maps the default set to nil.
-func canonical(ts []store.RunType) []store.RunType {
-	var out []store.RunType
-	for _, t := range store.AllRunTypes {
-		if slices.Contains(ts, t) {
-			out = append(out, t)
-		}
-	}
-	if len(out) == 0 || slices.Equal(out, store.DefaultRunTypes) {
-		return nil
-	}
-	return out
-}
-
-// typesQuery is the canonical ?types= value for ts ("" for the default set).
-func typesQuery(ts []store.RunType) string {
-	ts = canonical(ts)
-	parts := make([]string, len(ts))
-	for i, t := range ts {
-		parts[i] = string(t)
-	}
-	return strings.Join(parts, ",")
-}
-
-// toggleType returns the set with t added or removed; an empty result means the default.
-func toggleType(ts []store.RunType, t store.RunType) []store.RunType {
-	eff := store.RunFilter{Types: ts}.EffectiveTypes()
-	next := slices.DeleteFunc(slices.Clone(eff), func(x store.RunType) bool { return x == t })
-	if len(next) == len(eff) {
-		next = append(next, t)
-	}
-	return canonical(next)
-}
-
 // successRate formats succeeded/(succeeded+failed), rounded, or "-" with no finished runs.
 func successRate(st store.StackStats) string {
 	done := st.Succeeded + st.Failed
@@ -210,29 +154,6 @@ func successRate(st store.StackStats) string {
 		return "-"
 	}
 	return fmt.Sprintf("%d%%", (st.Succeeded*100+done/2)/done)
-}
-
-// withTypes appends ?types= to base unless ts is the default set.
-func withTypes(base string, ts []store.RunType) string {
-	if q := typesQuery(ts); q != "" {
-		return base + "?types=" + q
-	}
-	return base
-}
-
-// typeChips builds one toggle chip per run type for the stack page at base.
-func typeChips(base string, ts []store.RunType, st store.StackStats) []chip {
-	eff := store.RunFilter{Types: ts}.EffectiveTypes()
-	chips := make([]chip, 0, len(store.AllRunTypes))
-	for _, t := range store.AllRunTypes {
-		label := strings.ToUpper(string(t[:1])) + string(t[1:])
-		if t == store.RunTypePreview && st.HiddenPreviews > 0 {
-			label += fmt.Sprintf(" (%d hidden)", st.HiddenPreviews)
-		}
-		chips = append(chips, chip{Label: label, Href: withTypes(base, toggleType(ts, t)),
-			On: slices.Contains(eff, t)})
-	}
-	return chips
 }
 
 // changeChip is one change count on the run page.
@@ -466,4 +387,18 @@ func origin(r store.Run) *originBadge {
 	default:
 		return nil
 	}
+}
+
+// resourceLine summarises a run's changed resources for the rail: up to three short types
+// and names, then "and N more".
+func resourceLine(r store.Run) string {
+	parts := make([]string, 0, len(r.Summary))
+	for _, ref := range r.Summary {
+		parts = append(parts, shortType(ref.Type)+" "+ref.Name)
+	}
+	line := strings.Join(parts, ", ")
+	if more := r.ResourceTotal - len(r.Summary); more > 0 && line != "" {
+		line += fmt.Sprintf(" and %d more", more)
+	}
+	return line
 }

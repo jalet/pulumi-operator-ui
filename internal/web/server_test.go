@@ -29,7 +29,6 @@ type fakeReader struct {
 	next    *store.Cursor
 	pingErr error
 	gotCur  *store.Cursor
-	gotF    *store.RunFilter
 	stats   store.StackStats
 }
 
@@ -51,10 +50,24 @@ func (f *fakeReader) GetStack(_ context.Context, ns, name string) (store.StackSu
 	return store.StackSummary{}, store.ErrNotFound
 }
 
-func (f *fakeReader) ListRuns(_ context.Context, _, _ string, rf store.RunFilter,
+func (f *fakeReader) ListRuns(_ context.Context, _, _ string, _ store.RunFilter,
 	before *store.Cursor, _ int) ([]store.Run, *store.Cursor, error) {
-	f.gotCur, f.gotF = before, &rf
+	f.gotCur = before
 	return f.runs, f.next, nil
+}
+
+func (f *fakeReader) ListTimeline(_ context.Context, _, _ string, before *store.Cursor,
+	_ int) ([]store.Run, []store.Run, *store.Cursor, error) {
+	f.gotCur = before
+	var changes, previews []store.Run
+	for _, r := range f.runs {
+		if r.Type == store.RunTypePreview {
+			previews = append(previews, r)
+		} else {
+			changes = append(changes, r)
+		}
+	}
+	return changes, previews, f.next, nil
 }
 
 func (f *fakeReader) GetRun(_ context.Context, id int64) (store.Run, error) {
@@ -194,7 +207,7 @@ func TestFragments(t *testing.T) {
 	}{
 		{"/fragments/stacks", `id="stack-overview"`},
 		{"/fragments/stacks/ns/app", "<tr"},
-		{"/fragments/stacks/ns/app/runs", "app-u1"},
+		{"/fragments/stacks/ns/app/runs", `class="rail"`},
 		{"/fragments/runs/7/row", "run-7"},
 		{"/fragments/runs/7/header", "app-u1"},
 	}
@@ -341,68 +354,6 @@ func TestStaticHeaders(t *testing.T) {
 	}
 }
 
-func TestStackPageDefaultTypes(t *testing.T) {
-	r := sampleReader()
-	r.stats = store.StackStats{HiddenPreviews: 5}
-	srv := newServer(t, r, nil)
-	_, body := get(t, srv, "/stacks/ns/app")
-	if r.gotF == nil || len(r.gotF.Types) != 0 {
-		t.Fatalf("filter = %+v, want default", r.gotF)
-	}
-	for _, want := range []string{
-		`<a class="chip chip-on" href="/stacks/ns/app?types=refresh,destroy,import" aria-current="true">Up</a>`,
-		`<a class="chip chip-on" href="/stacks/ns/app?types=up,destroy,import" aria-current="true">Refresh</a>`,
-		`<a class="chip chip-on" href="/stacks/ns/app?types=up,refresh,import" aria-current="true">Destroy</a>`,
-		`<a class="chip chip-on" href="/stacks/ns/app?types=up,refresh,destroy" aria-current="true">Import</a>`,
-		`<a class="chip" href="/stacks/ns/app?types=up,refresh,destroy,import,preview">Preview (5 hidden)</a>`,
-		`hx-get="/fragments/stacks/ns/app/runs"`,
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("body lacks %s", want)
-		}
-	}
-}
-
-func TestStackPageTypesParam(t *testing.T) {
-	r := sampleReader()
-	r.next = &store.Cursor{At: time.Unix(0, 5), ID: 3}
-	srv := newServer(t, r, nil)
-	_, body := get(t, srv, "/stacks/ns/app?types=preview")
-	if r.gotF == nil || len(r.gotF.Types) != 1 || r.gotF.Types[0] != store.RunTypePreview {
-		t.Fatalf("filter = %+v, want [preview]", r.gotF)
-	}
-	for _, want := range []string{
-		`hx-get="/fragments/stacks/ns/app/runs?types=preview"`,
-		`href="/stacks/ns/app?types=preview&amp;before=5.3"`,
-		`<a class="chip chip-on" href="/stacks/ns/app" aria-current="true">Preview</a>`,
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("body lacks %s", want)
-		}
-	}
-}
-
-func TestStackPageBadTypes(t *testing.T) {
-	srv := newServer(t, sampleReader(), nil)
-	for _, path := range []string{"/stacks/ns/app?types=bogus", "/fragments/stacks/ns/app/runs?types=UP"} {
-		if resp, _ := get(t, srv, path); resp.StatusCode != http.StatusBadRequest {
-			t.Errorf("%s = %d, want 400", path, resp.StatusCode)
-		}
-	}
-}
-
-func TestRunsFragmentKeepsTypes(t *testing.T) {
-	r := sampleReader()
-	srv := newServer(t, r, nil)
-	_, body := get(t, srv, "/fragments/stacks/ns/app/runs?types=up")
-	if r.gotF == nil || len(r.gotF.Types) != 1 || r.gotF.Types[0] != store.RunTypeUp {
-		t.Fatalf("filter = %+v, want [up]", r.gotF)
-	}
-	if !strings.Contains(body, `hx-get="/fragments/stacks/ns/app/runs?types=up"`) {
-		t.Error("refreshed fragment dropped the types")
-	}
-}
-
 func TestStackHeaderStats(t *testing.T) {
 	r := sampleReader()
 	r.stats = store.StackStats{Total: 3, Succeeded: 2, Failed: 1}
@@ -415,24 +366,6 @@ func TestStackHeaderStats(t *testing.T) {
 	}
 }
 
-func TestEmptyTimelineOffersPreviews(t *testing.T) {
-	r := sampleReader()
-	r.runs = nil
-	srv := newServer(t, r, nil)
-	_, body := get(t, srv, "/stacks/ns/app")
-	if !strings.Contains(body, "No runs of the selected types.") ||
-		!strings.Contains(body, `href="/stacks/ns/app?types=up,refresh,destroy,import,preview"`) {
-		t.Fatalf("empty state missing:\n%s", body)
-	}
-}
-
-func TestStackTableScrolls(t *testing.T) {
-	srv := newServer(t, sampleReader(), nil)
-	_, body := get(t, srv, "/stacks/ns/app")
-	if !strings.Contains(body, `<div class="panel overflow-x-auto">`) {
-		t.Error("run table is not in a horizontally scrolling panel")
-	}
-}
 func twoNamespaceReader() *fakeReader {
 	r := sampleReader()
 	r.stacks = append(r.stacks, store.StackSummary{Stack: store.Stack{Namespace: "infra",
@@ -647,8 +580,7 @@ func TestTimelineChangesColumn(t *testing.T) {
 	srv := newServer(t, r, nil)
 	_, body := get(t, srv, "/stacks/ns/app")
 	// html/template escapes "+" in text as &#43;; browsers show "+2" either way.
-	if !strings.Contains(body, ">Changes<") ||
-		(!strings.Contains(body, ">+2<") && !strings.Contains(body, ">&#43;2<")) {
+	if !strings.Contains(body, ">+2<") && !strings.Contains(body, ">&#43;2<") {
 		t.Errorf("timeline lacks the Changes column:\n%s", body)
 	}
 }
@@ -795,16 +727,51 @@ func TestTimelineShowsTitleAndOrigin(t *testing.T) {
 	r.runs[0].UpdateName, r.runs[0].UID = "s3:prod-1", ""
 	r.runs[0].Title, r.runs[0].ExecKind = "chore: <tidy>", "cli"
 	_, body := get(t, newServer(t, r, nil), "/stacks/ns/app")
-	for _, want := range []string{"chore: &lt;tidy&gt;", "s3:prod-1", ">laptop<"} {
+	for _, want := range []string{"chore: &lt;tidy&gt;", ">laptop<"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("timeline lacks %s", want)
 		}
 	}
 }
 
-func TestImportChipOnByDefault(t *testing.T) {
-	_, body := get(t, newServer(t, sampleReader(), nil), "/stacks/ns/app")
-	if !strings.Contains(body, ">Import</a>") && !strings.Contains(body, ">Import <") {
-		t.Fatal("no Import chip")
+func TestStackPageRendersRail(t *testing.T) {
+	r := sampleReader()
+	seq := int64(69)
+	r.runs[0].Seq = &seq
+	r.runs[0].ExecKind = "auto.local"
+	r.runs[0].Summary = []store.ResourceRef{{Type: "aws:iam/userPolicy:UserPolicy", Name: "pulumi-operator-ui"}}
+	r.runs[0].ResourceTotal = 1
+	_, body := get(t, newServer(t, r, nil), "/stacks/ns/app")
+	for _, want := range []string{`class="rail"`, ">#69<", "iam/UserPolicy pulumi-operator-ui", ">operator<",
+		"counts updates in the state bucket's history"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("stack page lacks %s", want)
+		}
+	}
+	if strings.Contains(body, `aria-label="Run types"`) {
+		t.Error("type chips still rendered")
+	}
+}
+
+func TestStackPageIgnoresTypes(t *testing.T) {
+	resp, _ := get(t, newServer(t, sampleReader(), nil), "/stacks/ns/app?types=up,bogus")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d, want 200 for an old ?types= link", resp.StatusCode)
+	}
+}
+
+func TestStackPagePreviewsToggle(t *testing.T) {
+	r := sampleReader()
+	at := _now.Add(-time.Minute)
+	r.runs = append(r.runs, store.Run{ID: 8, Namespace: "ns", UpdateName: "pv1", StackName: "app",
+		Type: store.RunTypePreview, State: store.RunStateSucceeded, StartedAt: &at, ObservedAt: at})
+	srv := newServer(t, r, nil)
+	_, folded := get(t, srv, "/stacks/ns/app")
+	_, all := get(t, srv, "/stacks/ns/app?previews=all")
+	if !strings.Contains(folded, "<details") || !strings.Contains(folded, `href="/stacks/ns/app?previews=all"`) {
+		t.Error("folded page lacks the fold or the toggle")
+	}
+	if !strings.Contains(all, `id="run-8"`) || !strings.Contains(all, `href="/stacks/ns/app"`) {
+		t.Error("expanded page does not list the preview as a node or lacks the toggle back")
 	}
 }

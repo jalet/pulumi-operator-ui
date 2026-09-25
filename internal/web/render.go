@@ -55,6 +55,7 @@ func parsePages(now func() time.Time) map[string]*template.Template {
 		"operatorMessage": operatorMessage,
 		"commitURL":       commitURL,
 		"origin":          origin,
+		"resourceLine":    resourceLine,
 		"timelineCounts":  timelineCounts,
 		"noStart":         noStart,
 		"successRate":     successRate,
