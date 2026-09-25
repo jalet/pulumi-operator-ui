@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -51,6 +52,7 @@ type Deps struct {
 }
 
 type server struct {
+	now       func() time.Time
 	store     Reader
 	broker    *events.Broker
 	heartbeat time.Duration
@@ -59,12 +61,19 @@ type server struct {
 }
 
 type stackPage struct {
-	Stack    store.StackSummary
-	Runs     []store.Run
-	Next     *store.Cursor
-	Live     bool // first page only: older pages do not auto-refresh
-	Previews bool // previews shown; hidden by default because PKO previews hourly
+	Stack store.StackSummary
+	Runs  []store.Run
+	Next  *store.Cursor
+	Live  bool   // first page only: older pages do not auto-refresh
+	Query string // canonical ?types= value, "" for the default set
+	Stats store.StackStats
+	Chips []chip
+	// AddPreviews links to the same page with previews added; "" when they are shown.
+	AddPreviews string
 }
+
+// statsWindow is how far back the stack header counts runs.
+const statsWindow = 7 * 24 * time.Hour
 
 // New returns the application handler.
 func New(d Deps) http.Handler {
@@ -72,7 +81,7 @@ func New(d Deps) http.Handler {
 		d.Now == nil {
 		panic("invariant violated: web.Deps is incomplete")
 	}
-	s := &server{store: d.Store, broker: d.Broker, log: d.Log, pages: parsePages(d.Now),
+	s := &server{now: d.Now, store: d.Store, broker: d.Broker, log: d.Log, pages: parsePages(d.Now),
 		heartbeat: d.heartbeat}
 	if s.heartbeat == 0 {
 		s.heartbeat = sseHeartbeatIntervalDefault
@@ -187,8 +196,13 @@ func (s *server) stackPage(w http.ResponseWriter, r *http.Request) {
 		}
 		before = c
 	}
+	types, err := parseTypes(r.URL.Query().Get("types"))
+	if err != nil {
+		s.renderError(w, http.StatusBadRequest, "Bad request", "Unknown run type.")
+		return
+	}
 	page, err := s.loadStackPage(r.Context(), r.PathValue("ns"), r.PathValue("name"), before,
-		showPreviews(r))
+		types)
 	if err != nil {
 		s.storeError(w, err)
 		return
@@ -197,8 +211,13 @@ func (s *server) stackPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) stackRuns(w http.ResponseWriter, r *http.Request) {
+	types, err := parseTypes(r.URL.Query().Get("types"))
+	if err != nil {
+		s.renderError(w, http.StatusBadRequest, "Bad request", "Unknown run type.")
+		return
+	}
 	page, err := s.loadStackPage(r.Context(), r.PathValue("ns"), r.PathValue("name"), nil,
-		showPreviews(r))
+		types)
 	if err != nil {
 		s.storeError(w, err)
 		return
@@ -207,24 +226,28 @@ func (s *server) stackRuns(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) loadStackPage(ctx context.Context, ns, name string, before *store.Cursor,
-	previews bool) (stackPage, error) {
+	types []store.RunType) (stackPage, error) {
 	st, err := s.store.GetStack(ctx, ns, name)
 	if err != nil {
 		return stackPage{}, err
 	}
-	var f store.RunFilter // default types; Task 5 replaces the previews flag with ?types=
-	if previews {
-		f.Types = store.AllRunTypes
-	}
+	f := store.RunFilter{Types: types}
 	runs, next, err := s.store.ListRuns(ctx, ns, name, f, before, runsPageSize)
 	if err != nil {
 		return stackPage{}, err
 	}
-	return stackPage{Stack: st, Runs: runs, Next: next, Live: before == nil,
-		Previews: previews}, nil
+	stats, err := s.store.StackStats(ctx, ns, name, f, s.now().Add(-statsWindow))
+	if err != nil {
+		return stackPage{}, err
+	}
+	base := "/stacks/" + ns + "/" + name
+	page := stackPage{Stack: st, Runs: runs, Next: next, Live: before == nil,
+		Query: typesQuery(types), Stats: stats, Chips: typeChips(base, types, stats)}
+	if !slices.Contains(f.EffectiveTypes(), store.RunTypePreview) {
+		page.AddPreviews = withTypes(base, toggleType(types, store.RunTypePreview))
+	}
+	return page, nil
 }
-
-func showPreviews(r *http.Request) bool { return r.URL.Query().Get("previews") == "1" }
 
 func (s *server) runPage(w http.ResponseWriter, r *http.Request) {
 	s.withRun(w, r, func(run store.Run) { s.render(w, "run", "layout", run, http.StatusOK) })

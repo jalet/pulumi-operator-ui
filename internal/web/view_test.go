@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -85,5 +86,82 @@ func TestBuildListPage(t *testing.T) {
 	}
 	if every := buildListPage(all, ""); len(every.Stacks) != 3 || every.Counts.Attention != 1 {
 		t.Errorf("all: %+v", every)
+	}
+}
+
+func TestParseTypes(t *testing.T) {
+	tests := []struct {
+		give    string
+		want    []store.RunType
+		wantErr bool
+	}{
+		{give: "", want: nil},
+		{give: "up", want: []store.RunType{store.RunTypeUp}},
+		{give: "preview,up", want: []store.RunType{store.RunTypeUp, store.RunTypePreview}},
+		{give: "up,up,", want: []store.RunType{store.RunTypeUp}},
+		{give: ",", want: nil},
+		{give: "up,refresh,destroy", want: nil}, // the default set
+		{give: "UP", wantErr: true},
+		{give: "import", wantErr: true},
+		{give: "up,bogus", wantErr: true},
+	}
+	for _, tt := range tests {
+		got, err := parseTypes(tt.give)
+		if tt.wantErr {
+			if !errors.Is(err, errBadTypes) {
+				t.Errorf("parseTypes(%q) err = %v, want errBadTypes", tt.give, err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("parseTypes(%q): %v", tt.give, err)
+			continue
+		}
+		if diff := cmp.Diff(tt.want, got); diff != "" {
+			t.Errorf("parseTypes(%q) (-want +got):\n%s", tt.give, diff)
+		}
+	}
+}
+
+func TestTypesQuery(t *testing.T) {
+	if got := typesQuery(nil); got != "" {
+		t.Errorf("default = %q", got)
+	}
+	if got := typesQuery(store.DefaultRunTypes); got != "" {
+		t.Errorf("explicit default = %q, want empty", got)
+	}
+	if got := typesQuery([]store.RunType{store.RunTypePreview, store.RunTypeUp}); got != "up,preview" {
+		t.Errorf("got %q, want canonical order up,preview", got)
+	}
+}
+
+func TestToggleType(t *testing.T) {
+	var def []store.RunType
+	if got := typesQuery(toggleType(def, store.RunTypePreview)); got != "up,refresh,destroy,preview" {
+		t.Errorf("add preview to default = %q", got)
+	}
+	if got := typesQuery(toggleType(def, store.RunTypeUp)); got != "refresh,destroy" {
+		t.Errorf("remove up from default = %q", got)
+	}
+	if got := toggleType([]store.RunType{store.RunTypeUp}, store.RunTypeUp); got != nil {
+		t.Errorf("removing the last type = %v, want nil (default)", got)
+	}
+}
+
+func TestSuccessRate(t *testing.T) {
+	tests := []struct {
+		give store.StackStats
+		want string
+	}{
+		{store.StackStats{}, "-"},
+		{store.StackStats{Total: 3}, "-"}, // only running or pending
+		{store.StackStats{Total: 2, Succeeded: 2}, "100%"},
+		{store.StackStats{Total: 3, Succeeded: 2, Failed: 1}, "67%"},
+		{store.StackStats{Total: 1, Failed: 1}, "0%"},
+	}
+	for _, tt := range tests {
+		if got := successRate(tt.give); got != tt.want {
+			t.Errorf("successRate(%+v) = %q, want %q", tt.give, got, tt.want)
+		}
 	}
 }

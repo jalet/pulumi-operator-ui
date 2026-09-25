@@ -336,18 +336,20 @@ func TestStaticHeaders(t *testing.T) {
 	}
 }
 
-func TestStackPageHidesPreviewsByDefault(t *testing.T) {
+func TestStackPageDefaultTypes(t *testing.T) {
 	r := sampleReader()
-	r.next = &store.Cursor{At: time.Unix(0, 5), ID: 3}
+	r.stats = store.StackStats{HiddenPreviews: 5}
 	srv := newServer(t, r, nil)
 	_, body := get(t, srv, "/stacks/ns/app")
 	if r.gotF == nil || len(r.gotF.Types) != 0 {
-		t.Fatalf("filter = %+v, want previews hidden", r.gotF)
+		t.Fatalf("filter = %+v, want default", r.gotF)
 	}
 	for _, want := range []string{
-		`<a href="/stacks/ns/app?previews=1">Show previews</a>`,
+		`<a class="chip chip-on" href="/stacks/ns/app?types=refresh,destroy" aria-current="true">Up</a>`,
+		`<a class="chip chip-on" href="/stacks/ns/app?types=up,destroy" aria-current="true">Refresh</a>`,
+		`<a class="chip chip-on" href="/stacks/ns/app?types=up,refresh" aria-current="true">Destroy</a>`,
+		`<a class="chip" href="/stacks/ns/app?types=up,refresh,destroy,preview">Preview (5 hidden)</a>`,
 		`hx-get="/fragments/stacks/ns/app/runs"`,
-		`href="/stacks/ns/app?before=5.3"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body lacks %s", want)
@@ -355,18 +357,18 @@ func TestStackPageHidesPreviewsByDefault(t *testing.T) {
 	}
 }
 
-func TestStackPageShowsPreviewsWhenAsked(t *testing.T) {
+func TestStackPageTypesParam(t *testing.T) {
 	r := sampleReader()
 	r.next = &store.Cursor{At: time.Unix(0, 5), ID: 3}
 	srv := newServer(t, r, nil)
-	_, body := get(t, srv, "/stacks/ns/app?previews=1")
-	if r.gotF == nil || len(r.gotF.Types) != 4 {
-		t.Fatalf("filter = %+v, want previews shown", r.gotF)
+	_, body := get(t, srv, "/stacks/ns/app?types=preview")
+	if r.gotF == nil || len(r.gotF.Types) != 1 || r.gotF.Types[0] != store.RunTypePreview {
+		t.Fatalf("filter = %+v, want [preview]", r.gotF)
 	}
 	for _, want := range []string{
-		`<a href="/stacks/ns/app">Hide previews</a>`,
-		`hx-get="/fragments/stacks/ns/app/runs?previews=1"`,
-		`href="/stacks/ns/app?previews=1&amp;before=5.3"`,
+		`hx-get="/fragments/stacks/ns/app/runs?types=preview"`,
+		`href="/stacks/ns/app?types=preview&amp;before=5.3"`,
+		`<a class="chip chip-on" href="/stacks/ns/app" aria-current="true">Preview</a>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body lacks %s", want)
@@ -374,19 +376,36 @@ func TestStackPageShowsPreviewsWhenAsked(t *testing.T) {
 	}
 }
 
-func TestRunsFragmentKeepsPreviewChoice(t *testing.T) {
+func TestStackPageBadTypes(t *testing.T) {
+	srv := newServer(t, sampleReader(), nil)
+	for _, path := range []string{"/stacks/ns/app?types=bogus", "/fragments/stacks/ns/app/runs?types=UP"} {
+		if resp, _ := get(t, srv, path); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s = %d, want 400", path, resp.StatusCode)
+		}
+	}
+}
+
+func TestRunsFragmentKeepsTypes(t *testing.T) {
 	r := sampleReader()
 	srv := newServer(t, r, nil)
-	_, body := get(t, srv, "/fragments/stacks/ns/app/runs?previews=1")
-	if r.gotF == nil || len(r.gotF.Types) != 4 {
-		t.Fatalf("filter = %+v, want previews shown", r.gotF)
+	_, body := get(t, srv, "/fragments/stacks/ns/app/runs?types=up")
+	if r.gotF == nil || len(r.gotF.Types) != 1 || r.gotF.Types[0] != store.RunTypeUp {
+		t.Fatalf("filter = %+v, want [up]", r.gotF)
 	}
-	if !strings.Contains(body, `hx-get="/fragments/stacks/ns/app/runs?previews=1"`) {
-		t.Error("refreshed fragment dropped the previews choice")
+	if !strings.Contains(body, `hx-get="/fragments/stacks/ns/app/runs?types=up"`) {
+		t.Error("refreshed fragment dropped the types")
 	}
-	get(t, srv, "/fragments/stacks/ns/app/runs")
-	if len(r.gotF.Types) != 0 {
-		t.Fatal("default fragment shows previews")
+}
+
+func TestStackHeaderStats(t *testing.T) {
+	r := sampleReader()
+	r.stats = store.StackStats{Total: 3, Succeeded: 2, Failed: 1}
+	srv := newServer(t, r, nil)
+	_, body := get(t, srv, "/stacks/ns/app")
+	for _, want := range []string{">67%<", ">3<", "Runs (7d)", "Success", `<span class="pill tone-ok">`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("header lacks %s", want)
+		}
 	}
 }
 
@@ -395,12 +414,19 @@ func TestEmptyTimelineOffersPreviews(t *testing.T) {
 	r.runs = nil
 	srv := newServer(t, r, nil)
 	_, body := get(t, srv, "/stacks/ns/app")
-	if !strings.Contains(body, "No up, refresh or destroy runs recorded.") ||
-		!strings.Contains(body, `href="/stacks/ns/app?previews=1"`) {
+	if !strings.Contains(body, "No runs of the selected types.") ||
+		!strings.Contains(body, `href="/stacks/ns/app?types=up,refresh,destroy,preview"`) {
 		t.Fatalf("empty state missing:\n%s", body)
 	}
 }
 
+func TestStackTableScrolls(t *testing.T) {
+	srv := newServer(t, sampleReader(), nil)
+	_, body := get(t, srv, "/stacks/ns/app")
+	if !strings.Contains(body, `<div class="panel overflow-x-auto">`) {
+		t.Error("run table is not in a horizontally scrolling panel")
+	}
+}
 func twoNamespaceReader() *fakeReader {
 	r := sampleReader()
 	r.stacks = append(r.stacks, store.StackSummary{Stack: store.Stack{Namespace: "infra",

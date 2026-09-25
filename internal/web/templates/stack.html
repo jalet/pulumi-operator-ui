@@ -1,26 +1,39 @@
 {{define "title"}}{{.Stack.Namespace}}/{{.Stack.Name}}{{end}}
 
 {{define "content"}}
-<p><a href="/">Stacks</a></p>
-<h1><span class="muted">{{.Stack.Namespace}}/</span>{{.Stack.Name}}</h1>
-<p>{{template "stack-status" .Stack}} last deployed commit {{if .Stack.LastCommit}}<code class="commit">{{shortCommit .Stack.LastCommit}}</code>{{else}}<span class="muted">none</span>{{end}}</p>
-<p>{{if .Previews}}<a href="/stacks/{{.Stack.Namespace}}/{{.Stack.Name}}">Hide previews</a>{{else}}<a href="/stacks/{{.Stack.Namespace}}/{{.Stack.Name}}?previews=1">Show previews</a>{{end}}</p>
-<table class="grid">
-<thead><tr><th>Run</th><th>Type</th><th>State</th><th>Commit</th><th>Started</th><th>Duration</th></tr></thead>
+<nav class="mb-3 text-xs text-muted" aria-label="Breadcrumb"><a class="hover:text-ink" href="/">Stacks</a> / <a class="hover:text-ink" href="/?ns={{.Stack.Namespace}}">{{.Stack.Namespace}}</a></nav>
+<section class="panel mb-4 flex flex-wrap items-center justify-between gap-4 p-4">
+  <div>
+    <h1 class="text-lg font-bold">{{.Stack.Name}} <span class="font-normal text-muted">{{.Stack.Namespace}}</span></h1>
+    <p class="mt-1 text-xs text-muted">last deployed {{if .Stack.LastCommit}}<code>{{shortCommit .Stack.LastCommit}}</code>{{else}}none{{end}}</p>
+  </div>
+  <dl class="flex flex-wrap gap-6 text-xs">
+    <div><dt class="text-muted">Health</dt><dd class="mt-1">{{template "pill" (health .Stack)}}</dd></div>
+    <div><dt class="text-muted">Runs (7d)</dt><dd class="mt-1 text-base font-bold">{{.Stats.Total}}</dd></div>
+    <div><dt class="text-muted">Success</dt><dd class="mt-1 text-base font-bold">{{successRate .Stats}}</dd></div>
+  </dl>
+</section>
+<nav class="mb-3 flex flex-wrap gap-2" aria-label="Run types">{{range .Chips}}{{template "chip" .}}{{end}}</nav>
+<div class="panel overflow-x-auto">
+<table class="w-full text-sm">
+<thead><tr class="border-b border-line text-left text-[11px] uppercase tracking-wider text-muted">
+<th class="px-3 py-2 font-semibold">Run</th><th class="px-3 py-2 font-semibold">Type</th><th class="px-3 py-2 font-semibold">State</th><th class="px-3 py-2 font-semibold">Commit</th><th class="px-3 py-2 font-semibold">Started</th><th class="px-3 py-2 font-semibold">Duration</th>
+</tr></thead>
 {{template "run-rows" .}}
 </table>
-{{if .Next}}<p><a href="/stacks/{{.Stack.Namespace}}/{{.Stack.Name}}?{{if .Previews}}previews=1&amp;before={{else}}before={{end}}{{cursor .Next}}">Older runs</a></p>{{end}}
+</div>
+{{if .Next}}<p class="mt-3 text-sm"><a class="text-muted hover:text-ink" href="/stacks/{{.Stack.Namespace}}/{{.Stack.Name}}?{{if .Query}}types={{.Query}}&amp;{{end}}before={{cursor .Next}}">Older runs</a></p>{{end}}
 {{end}}
 
-{{define "run-rows"}}<tbody{{if .Live}} hx-get="/fragments/stacks/{{.Stack.Namespace}}/{{.Stack.Name}}/runs{{if .Previews}}?previews=1{{end}}" hx-trigger="sse:{{stackEvent .Stack.Namespace .Stack.Name}}, sse:resync" hx-swap="outerHTML"{{end}}>
-{{range .Runs}}{{template "run-row" .}}{{else}}<tr><td colspan="6" class="muted">{{if $.Previews}}No runs recorded.{{else}}No up, refresh or destroy runs recorded. <a href="/stacks/{{$.Stack.Namespace}}/{{$.Stack.Name}}?previews=1">Show previews</a>{{end}}</td></tr>{{end}}
+{{define "run-rows"}}<tbody{{if .Live}} hx-get="/fragments/stacks/{{.Stack.Namespace}}/{{.Stack.Name}}/runs{{if .Query}}?types={{.Query}}{{end}}" hx-trigger="sse:{{stackEvent .Stack.Namespace .Stack.Name}}, sse:resync" hx-swap="outerHTML"{{end}}>
+{{range .Runs}}{{template "run-row" .}}{{else}}<tr><td colspan="6" class="px-3 py-8 text-center text-muted">No runs of the selected types.{{if $.AddPreviews}} <a class="text-ink underline" href="{{$.AddPreviews}}">Show previews</a>{{end}}</td></tr>{{end}}
 </tbody>{{end}}
 
-{{define "run-row"}}<tr id="run-{{.ID}}" hx-get="/fragments/runs/{{.ID}}/row" hx-trigger="sse:run-{{.ID}}" hx-swap="outerHTML">
-  <td><a href="/runs/{{.ID}}">{{.UpdateName}}</a></td>
-  <td>{{.Type}}</td>
-  <td>{{template "state" .State}}</td>
-  <td>{{template "commit" .}}</td>
-  <td>{{if .StartedAt}}<time datetime="{{iso .StartedAt}}">{{age .StartedAt}}</time>{{else}}<span class="muted">not started</span>{{end}}</td>
-  <td>{{duration .StartedAt .EndedAt}}</td>
+{{define "run-row"}}<tr id="run-{{.ID}}" class="border-b border-line last:border-0" hx-get="/fragments/runs/{{.ID}}/row" hx-trigger="sse:run-{{.ID}}" hx-swap="outerHTML">
+  <td class="px-3 py-2.5 whitespace-nowrap"><a class="font-mono text-xs hover:underline" href="/runs/{{.ID}}">{{.UpdateName}}</a></td>
+  <td class="px-3 py-2.5">{{.Type}}</td>
+  <td class="px-3 py-2.5">{{template "pill" (stateBadge .State)}}</td>
+  <td class="px-3 py-2.5">{{template "commit" .}}</td>
+  <td class="px-3 py-2.5 whitespace-nowrap">{{if .StartedAt}}<time datetime="{{iso .StartedAt}}">{{age .StartedAt}}</time>{{else}}<span class="text-muted">not started</span>{{end}}</td>
+  <td class="px-3 py-2.5">{{duration .StartedAt .EndedAt}}</td>
 </tr>{{end}}
