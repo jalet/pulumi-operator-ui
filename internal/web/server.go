@@ -97,6 +97,7 @@ func New(d Deps) http.Handler {
 	})
 	mux.HandleFunc("GET /readyz", s.readyz)
 	mux.Handle("GET /static/", staticHandler())
+	mux.Handle("GET /favicon.ico", faviconHandler())
 	d.AuthRoutes(mux)
 
 	protected := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, d.RequireAuth(h)) }
@@ -143,6 +144,21 @@ func staticHandler() http.Handler {
 		}
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		files.ServeHTTP(w, r)
+	})
+}
+
+// faviconHandler answers the browser's unversioned /favicon.ico request, which comes before
+// any sign-in, so it sits outside the auth wall. The URL is not versioned, so it is cached
+// for a day rather than forever.
+func faviconHandler() http.Handler {
+	icon, err := _static.ReadFile("static/favicon.ico")
+	if err != nil {
+		panic("invariant violated: embedded favicon: " + err.Error())
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/x-icon")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		_, _ = w.Write(icon) // a client that went away is not an error worth logging
 	})
 }
 

@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -231,5 +232,50 @@ func TestAssetURLsAreVersioned(t *testing.T) {
 	resp, _ := get(t, srv, "/static/app.css?v=anything")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("versioned URL = %d", resp.StatusCode)
+	}
+}
+
+func TestLayoutLinksFavicon(t *testing.T) {
+	_, body := get(t, newServer(t, sampleReader(), nil), "/")
+	if !regexp.MustCompile(`<link rel="icon" href="/static/favicon\.ico\?v=[0-9a-f]{12}"`).
+		MatchString(body) {
+		t.Error("layout lacks a versioned favicon link")
+	}
+}
+
+// Browsers ask for /favicon.ico before anyone signs in, so it is served without a session.
+func TestFaviconAtRootWithoutAuth(t *testing.T) {
+	deny := func(http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusUnauthorized)
+		})
+	}
+	resp, body := get(t, newServer(t, sampleReader(), deny), "/favicon.ico")
+	want, err := fs.ReadFile(_static, "static/favicon.ico")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK || body != string(want) {
+		t.Fatalf("status %d, %d bytes; want 200 and the static icon", resp.StatusCode, len(body))
+	}
+	if !strings.Contains(resp.Header.Get("Content-Type"), "icon") {
+		t.Errorf("Content-Type = %q", resp.Header.Get("Content-Type"))
+	}
+}
+
+func TestFaviconHasTabSizesOnly(t *testing.T) {
+	b, err := fs.ReadFile(_static, "static/favicon.ico")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b) < 6 || b[0] != 0 || b[2] != 1 {
+		t.Fatal("not an ICO file")
+	}
+	var sizes []int
+	for i := range int(b[4]) {
+		sizes = append(sizes, int(b[6+16*i]))
+	}
+	if !slices.Equal(sizes, []int{16, 32, 48}) || len(b) > 20<<10 {
+		t.Errorf("sizes %v, %d bytes; want [16 32 48] and at most 20 KiB", sizes, len(b))
 	}
 }
