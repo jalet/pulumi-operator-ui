@@ -149,7 +149,7 @@ func TestStackFromObject(t *testing.T) {
 			give: "stack-ready",
 			want: store.Stack{Namespace: "ns", Name: "app", Ready: true, LastCommit: "bbb",
 				UpdatedAt: _now, BackendURL: "s3://b/p?region=eu-north-1", Project: "proj",
-				PulumiStack: "dev"},
+				PulumiStack: "dev", Preview: true},
 		},
 		{
 			give: "stack-stalled",

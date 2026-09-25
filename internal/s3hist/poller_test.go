@@ -405,3 +405,36 @@ func TestTickTimesOutStalledStack(t *testing.T) {
 		t.Errorf("healthy stack entries = %d, want 1", len(st.inserted))
 	}
 }
+
+func TestTickSharedTargetOwnedByApplyingStack(t *testing.T) {
+	drift := _stack
+	drift.Name, drift.Preview = "app-drift", true
+	// The preview Stack sorts first by name; ownership must not depend on order.
+	st, fs := newFakeStore(drift, _stack), newFakeS3()
+	fs.put("b", _prefix+"dev-1.history.json", historyBody("update", 1790239732))
+	fs.put("b", _prefix+"dev-2.history.json", historyBody("update", 1790239800))
+	newPoller(st, fs).tick(t.Context())
+	if len(st.inserted) != 2 {
+		t.Fatalf("inserted %d entries, want 2", len(st.inserted))
+	}
+	for _, e := range st.inserted {
+		if e.StackName != "app" {
+			t.Errorf("entry %s attributed to %s, want app", e.Key, e.StackName)
+		}
+	}
+	if len(fs.lists) != 1 {
+		t.Errorf("listed %d times, want 1", len(fs.lists))
+	}
+}
+
+func TestTickSharedTargetWithoutApplierPicksLowestName(t *testing.T) {
+	a, b := _stack, _stack
+	a.Name, a.Preview = "b-drift", true
+	b.Name, b.Preview = "a-drift", true
+	st, fs := newFakeStore(a, b), newFakeS3()
+	fs.put("b", _prefix+"dev-1.history.json", historyBody("update", 1790239732))
+	newPoller(st, fs).tick(t.Context())
+	if len(st.inserted) != 1 || st.inserted[0].StackName != "a-drift" {
+		t.Fatalf("inserted = %+v, want one entry on a-drift", st.inserted)
+	}
+}

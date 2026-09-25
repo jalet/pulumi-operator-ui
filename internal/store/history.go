@@ -20,6 +20,7 @@ import (
 // S3Stack is an active Stack whose backend may hold S3 history.
 type S3Stack struct {
 	Namespace, Name, BackendURL, Project, PulumiStack string
+	Preview                                           bool // spec.preview
 }
 
 // HistoryEntry is one parsed history file, reduced to the stored fields.
@@ -37,7 +38,7 @@ type HistoryEntry struct {
 // S3Stacks returns active stacks with an s3:// backend and a known project and pulumi stack.
 func (s *Store) S3Stacks(ctx context.Context) ([]S3Stack, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT namespace, name, backend_url, project, pulumi_stack FROM stacks
+		SELECT namespace, name, backend_url, project, pulumi_stack, preview FROM stacks
 		WHERE deleted_at IS NULL AND backend_url LIKE 's3://%'
 		  AND project <> '' AND pulumi_stack <> ''
 		ORDER BY namespace, name LIMIT $1`, stacksMax+1)

@@ -101,11 +101,12 @@ func (p *Poller) tick(ctx context.Context) {
 		p.o.Log.Error().Err(err).Msg("s3 history: list stacks")
 		return
 	}
+	owners := p.owners(ctx, stacks)
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(stackConcurrency)
-	for _, s := range stacks {
+	for _, o := range owners {
 		g.Go(func() error {
-			p.pollStack(gctx, s)
+			p.pollStack(gctx, o.stack, o.target)
 			return nil // per-Stack failures are recorded, not propagated
 		})
 	}
@@ -128,20 +129,59 @@ func (p *Poller) link(ctx context.Context) {
 	p.o.Log.Warn().Int("calls", linkCallsMax).Msg("s3 history: link backlog remains for next tick")
 }
 
-func (p *Poller) pollStack(ctx context.Context, s store.S3Stack) {
-	now := p.o.Now()
-	t, err := TargetFor(s)
-	if err != nil {
-		reason := "backend"
-		switch {
-		case errors.Is(err, ErrEndpoint):
-			reason = "endpoint"
-		case errors.Is(err, ErrStackName):
-			reason = "stack_name"
+type owned struct {
+	stack  store.S3Stack
+	target Target
+}
+
+// owners resolves each Stack's history target and picks one owner per target, recording a
+// failure for Stacks whose target cannot be resolved. Several Stacks can run the same Pulumi
+// stack, such as an applying Stack and a preview-only drift Stack. The history is theirs
+// jointly but is read once and shown on one of them: the first that applies, else the
+// lowest namespace/name, so ownership never depends on listing order.
+func (p *Poller) owners(ctx context.Context, stacks []store.S3Stack) []owned {
+	byTarget := map[string]int{}
+	var out []owned
+	for _, s := range stacks {
+		t, err := TargetFor(s)
+		if err != nil {
+			reason := "backend"
+			switch {
+			case errors.Is(err, ErrEndpoint):
+				reason = "endpoint"
+			case errors.Is(err, ErrStackName):
+				reason = "stack_name"
+			}
+			p.fail(ctx, s, reason, err)
+			continue
 		}
-		p.fail(ctx, s, reason, err)
-		return
+		key := t.Bucket + "/" + t.Prefix
+		i, ok := byTarget[key]
+		if !ok {
+			byTarget[key] = len(out)
+			out = append(out, owned{s, t})
+			continue
+		}
+		if prefer(s, out[i].stack) {
+			out[i] = owned{s, t}
+		}
 	}
+	return out
+}
+
+// prefer reports whether a should own a shared target instead of b.
+func prefer(a, b store.S3Stack) bool {
+	if a.Preview != b.Preview {
+		return !a.Preview
+	}
+	if a.Namespace != b.Namespace {
+		return a.Namespace < b.Namespace
+	}
+	return a.Name < b.Name
+}
+
+func (p *Poller) pollStack(ctx context.Context, s store.S3Stack, t Target) {
+	now := p.o.Now()
 	client, err := p.o.Client(t.Region)
 	if err != nil {
 		p.fail(ctx, s, "client", err)

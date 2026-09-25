@@ -74,6 +74,7 @@ type Stack struct {
 	BackendURL  string     // spec.backend
 	Project     string     // status.projectInfo.name
 	PulumiStack string     // spec.stack
+	Preview     bool       // spec.preview
 	S3Error     string     // last S3 history error, "" when fine; written by SetStackS3Status
 	S3CheckedAt *time.Time // last successful S3 history poll
 }

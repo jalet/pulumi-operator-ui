@@ -282,15 +282,17 @@ func TestSweepStacks(t *testing.T) {
 func TestUpsertStackStoresDiscoveryFields(t *testing.T) {
 	s, _ := newTestStore(t)
 	st := Stack{Namespace: "ns", Name: "s", UpdatedAt: time.Now(), BackendURL: "s3://b/p",
-		Project: "proj", PulumiStack: "dev"}
+		Project: "proj", PulumiStack: "dev", Preview: true}
 	must(t, s.UpsertStack(t.Context(), st))
 	got := getStackRow(t, s, "ns", "s")
-	if got.BackendURL != "s3://b/p" || got.Project != "proj" || got.PulumiStack != "dev" {
+	if got.BackendURL != "s3://b/p" || got.Project != "proj" || got.PulumiStack != "dev" ||
+		!got.Preview {
 		t.Fatalf("got %+v", got)
 	}
-	st.BackendURL, st.Project = "s3://b/q", "other"
+	st.BackendURL, st.Project, st.Preview = "s3://b/q", "other", false
 	must(t, s.UpsertStack(t.Context(), st))
-	if got := getStackRow(t, s, "ns", "s"); got.BackendURL != "s3://b/q" || got.Project != "other" {
+	if got := getStackRow(t, s, "ns", "s"); got.BackendURL != "s3://b/q" || got.Project != "other" ||
+		got.Preview {
 		t.Fatalf("not overwritten: %+v", got)
 	}
 }

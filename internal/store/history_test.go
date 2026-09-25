@@ -20,6 +20,8 @@ func TestS3Stacks(t *testing.T) {
 	s, _ := newTestStore(t)
 	ctx := t.Context()
 	s3Stack(t, s, "ns", "a", "s3://b/p?region=eu-north-1", "proj")
+	must(t, s.UpsertStack(ctx, Stack{Namespace: "ns", Name: "b-drift", UpdatedAt: time.Now(),
+		BackendURL: "s3://b/p", Project: "proj", PulumiStack: "dev", Preview: true}))
 	s3Stack(t, s, "ns", "cloud", "https://api.pulumi.com", "proj")
 	s3Stack(t, s, "ns", "noproj", "s3://b/p", "")
 	s3Stack(t, s, "ns", "gone", "s3://b/p", "proj")
@@ -29,8 +31,12 @@ func TestS3Stacks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []S3Stack{{Namespace: "ns", Name: "a", BackendURL: "s3://b/p?region=eu-north-1",
-		Project: "proj", PulumiStack: "dev"}}
+	want := []S3Stack{
+		{Namespace: "ns", Name: "a", BackendURL: "s3://b/p?region=eu-north-1", Project: "proj",
+			PulumiStack: "dev"},
+		{Namespace: "ns", Name: "b-drift", BackendURL: "s3://b/p", Project: "proj",
+			PulumiStack: "dev", Preview: true},
+	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("(-want +got):\n%s", diff)
 	}
