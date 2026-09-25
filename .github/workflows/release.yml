@@ -1,0 +1,43 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write # push image and chart to ghcr.io
+      id-token: write # keyless cosign signing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+      - name: Build and push image
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KO_DOCKER_REPO: ghcr.io/jalet/pulumi-operator-ui
+        run: |
+          echo "$GITHUB_TOKEN" | ko login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          ko build --bare --tags "${VERSION},latest" --sbom spdx --image-refs refs.txt \
+            ./cmd/pulumi-operator-ui
+      - name: Sign image
+        run: |
+          while read -r ref; do cosign sign --yes "$ref"; done < refs.txt
+      - name: Package and push chart
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          helm package charts/pulumi-operator-ui --version "$VERSION" --app-version "$VERSION"
+          echo "$GITHUB_TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          helm push "pulumi-operator-ui-${VERSION}.tgz" oci://ghcr.io/jalet/charts

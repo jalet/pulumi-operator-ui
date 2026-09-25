@@ -1,0 +1,13 @@
+defaultBaseImage: gcr.io/distroless/static-debian12:nonroot
+defaultPlatforms:
+  - linux/amd64
+  - linux/arm64
+builds:
+  - id: pulumi-operator-ui
+    main: ./cmd/pulumi-operator-ui
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Env.VERSION}}
