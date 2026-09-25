@@ -42,6 +42,8 @@ func defaults() Config {
 		SessionAgeMax:  8 * time.Hour,
 		RetentionRuns:  4320 * time.Hour,
 		RetentionAuth:  8760 * time.Hour,
+
+		S3HistoryInterval: 5 * time.Minute,
 	}
 }
 
@@ -96,6 +98,18 @@ func TestParse(t *testing.T) {
 			name:     "sslmode disable off localhost",
 			giveArgs: with("--database-url=postgres://u@db/pou?sslmode=disable"),
 			wantErr:  "sslmode=disable is only allowed for localhost",
+		},
+		{
+			name:     "s3 history on",
+			giveArgs: with("--s3-history.enabled", "--s3-history.interval=2m"),
+			want: func(c *Config) {
+				c.S3HistoryEnabled, c.S3HistoryInterval = true, 2*time.Minute
+			},
+		},
+		{
+			name:     "s3 history interval too short",
+			giveArgs: with("--s3-history.interval=30s"),
+			wantErr:  "--s3-history.interval must be at least 1m",
 		},
 		{
 			name:     "no sslmode off localhost",

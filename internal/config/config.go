@@ -42,6 +42,9 @@ type Config struct {
 	SessionAgeMax      time.Duration
 	RetentionRuns      time.Duration
 	RetentionAuth      time.Duration
+
+	S3HistoryEnabled  bool
+	S3HistoryInterval time.Duration
 }
 
 // Parse reads flags from args (without argv[0]); getenv supplies the DATABASE_URL fallback.
@@ -73,6 +76,10 @@ func Parse(args []string, getenv func(string) string) (Config, error) {
 	fs.DurationVar(&c.SessionAgeMax, "session.max-age", 8*time.Hour, "absolute session lifetime")
 	fs.DurationVar(&c.RetentionRuns, "retention", 4320*time.Hour, "retention for runs")
 	fs.DurationVar(&c.RetentionAuth, "auth-retention", 8760*time.Hour, "retention for auth events")
+	fs.BoolVar(&c.S3HistoryEnabled, "s3-history.enabled", false,
+		"read Pulumi update history from each Stack's S3 backend")
+	fs.DurationVar(&c.S3HistoryInterval, "s3-history.interval", 5*time.Minute,
+		"S3 history poll interval")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, fmt.Errorf("parse flags: %w", err)
 	}
@@ -111,6 +118,9 @@ func (c *Config) validate() error {
 	}
 	if c.RetentionAuth < _retentionFloor {
 		errs = append(errs, errors.New("--auth-retention must be at least 1h"))
+	}
+	if c.S3HistoryInterval < time.Minute {
+		errs = append(errs, errors.New("--s3-history.interval must be at least 1m"))
 	}
 	if c.SessionAgeMax < _sessionAgeFloor || c.SessionAgeMax > _sessionAgeCeiling {
 		errs = append(errs, errors.New("--session.max-age must be between 5m and 24h"))

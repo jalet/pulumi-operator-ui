@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	corev1 "k8s.io/api/core/v1"
@@ -25,7 +26,7 @@ import (
 )
 
 func TestRunConfigError(t *testing.T) {
-	err := run(t.Context(), nil, func(string) string { return "" }, nil)
+	err := run(t.Context(), nil, func(string) string { return "" }, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "--database-url") {
 		t.Fatalf("err = %v, want a --database-url error", err)
 	}
@@ -66,8 +67,13 @@ func TestRunEndToEnd(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1) // single result from run
+	noAWS := func(context.Context) (aws.Config, error) {
+		t.Error("AWS config loaded while S3 history is off")
+		return aws.Config{}, nil
+	}
 	go func() {
-		done <- run(ctx, args, func(string) string { return "" }, func() (*rest.Config, error) { return restCfg, nil })
+		done <- run(ctx, args, func(string) string { return "" },
+			func() (*rest.Config, error) { return restCfg, nil }, noAWS)
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -260,4 +266,24 @@ func statusOf(t *testing.T, c *http.Client, u string) int {
 	}
 	_ = resp.Body.Close()
 	return resp.StatusCode
+}
+
+func TestNewS3ClientsCachesPerRegion(t *testing.T) {
+	clients := newS3Clients(aws.Config{Region: "eu-north-1"})
+	a, err := clients("eu-north-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := clients("eu-north-1")
+	c, _ := clients("eu-west-1")
+	d, _ := clients("")
+	if a != b {
+		t.Error("same region returned different clients")
+	}
+	if a == c {
+		t.Error("different regions share a client")
+	}
+	if d == nil {
+		t.Error("default region client is nil")
+	}
 }

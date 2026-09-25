@@ -11,8 +11,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/go-logr/zerologr"
 	"github.com/rs/zerolog"
@@ -23,6 +28,7 @@ import (
 	"github.com/jalet/pulumi-operator-ui/internal/auth"
 	"github.com/jalet/pulumi-operator-ui/internal/config"
 	"github.com/jalet/pulumi-operator-ui/internal/events"
+	"github.com/jalet/pulumi-operator-ui/internal/s3hist"
 	"github.com/jalet/pulumi-operator-ui/internal/store"
 	"github.com/jalet/pulumi-operator-ui/internal/watch"
 	"github.com/jalet/pulumi-operator-ui/internal/web"
@@ -39,7 +45,10 @@ var version = "dev"
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := run(ctx, os.Args[1:], os.Getenv, ctrl.GetConfig); err != nil {
+	loadAWS := func(ctx context.Context) (aws.Config, error) {
+		return awsconfig.LoadDefaultConfig(ctx)
+	}
+	if err := run(ctx, os.Args[1:], os.Getenv, ctrl.GetConfig, loadAWS); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		stop()
 		os.Exit(1) //nolint:gocritic // stop() was called explicitly above
@@ -53,7 +62,8 @@ type secrets struct {
 }
 
 func run(ctx context.Context, args []string, getenv func(string) string,
-	restConfig func() (*rest.Config, error)) error {
+	restConfig func() (*rest.Config, error),
+	loadAWS func(ctx context.Context) (aws.Config, error)) error {
 	cfg, err := config.Parse(args, getenv)
 	if err != nil {
 		return err
@@ -101,9 +111,52 @@ func run(ctx context.Context, args []string, getenv func(string) string,
 	})); err != nil {
 		return fmt.Errorf("add pruner: %w", err)
 	}
+	if cfg.S3HistoryEnabled {
+		if err := addS3History(ctx, mgr, cfg, st, logger, loadAWS); err != nil {
+			return err
+		}
+	}
 	logger.Info().Str("http", cfg.HTTPAddr).Str("metrics", cfg.MetricsAddr).
 		Strs("namespaces", cfg.Namespaces).Msg("starting")
 	return mgr.Start(ctx)
+}
+
+// addS3History loads AWS config and starts the S3 history poller. It is only called when S3
+// history is enabled, so the app never touches AWS configuration otherwise.
+func addS3History(ctx context.Context, mgr manager.Manager, cfg config.Config, st *store.Store,
+	logger zerolog.Logger, loadAWS func(ctx context.Context) (aws.Config, error)) error {
+	awsCfg, err := loadAWS(ctx)
+	if err != nil {
+		return fmt.Errorf("aws config: %w", err)
+	}
+	poller := s3hist.New(s3hist.Options{Store: st, Client: newS3Clients(awsCfg),
+		Interval: cfg.S3HistoryInterval, Retention: cfg.RetentionRuns, Now: time.Now,
+		Log: logger})
+	if err := mgr.Add(manager.RunnableFunc(poller.Run)); err != nil {
+		return fmt.Errorf("add s3 history poller: %w", err)
+	}
+	return nil
+}
+
+// newS3Clients returns one S3 client per region, created on first use. Region "" keeps the
+// SDK's default region.
+func newS3Clients(cfg aws.Config) func(region string) (s3hist.S3API, error) {
+	var mu sync.Mutex
+	clients := map[string]*s3.Client{}
+	return func(region string) (s3hist.S3API, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if c, ok := clients[region]; ok {
+			return c, nil
+		}
+		c := s3.NewFromConfig(cfg, func(o *s3.Options) {
+			if region != "" {
+				o.Region = region
+			}
+		})
+		clients[region] = c
+		return c, nil
+	}
 }
 
 func loadSecrets(cfg config.Config) (secrets, error) {
