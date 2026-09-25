@@ -62,8 +62,11 @@ LEFT JOIN LATERAL (
 
 const _runSelect = `
 SELECT id, namespace, update_name, COALESCE(uid, ''), stack_name, type, commit, commit_source,
-       state, message, started_at, ended_at, observed_at, c.counts
-FROM runs LEFT JOIN run_changes c ON c.run_id = runs.id AND c.source = 's3'`
+       state, message, started_at, ended_at, observed_at, c.counts, log_status, lc.counts,
+       lc.resources
+FROM runs
+LEFT JOIN run_changes c ON c.run_id = runs.id AND c.source = 's3'
+LEFT JOIN run_changes lc ON lc.run_id = runs.id AND lc.source = 'log'`
 
 // ListStacks returns active (not soft-deleted) stacks ordered by namespace and name.
 func (s *Store) ListStacks(ctx context.Context) ([]StackSummary, error) {
@@ -205,15 +208,26 @@ func (s *Store) GetRun(ctx context.Context, id int64) (Run, error) {
 
 func scanRun(row pgx.CollectableRow) (Run, error) {
 	var r Run
-	var counts []byte
+	var counts, logCounts, resources []byte
 	err := row.Scan(&r.ID, &r.Namespace, &r.UpdateName, &r.UID, &r.StackName, &r.Type,
 		&r.Commit, &r.CommitSource, &r.State, &r.Message, &r.StartedAt, &r.EndedAt,
-		&r.ObservedAt, &counts)
-	if err != nil || counts == nil {
+		&r.ObservedAt, &counts, &r.LogStatus, &logCounts, &resources)
+	if err != nil {
 		return r, err
 	}
-	if err := json.Unmarshal(counts, &r.Changes); err != nil {
-		return r, fmt.Errorf("decode run changes: %w", err)
+	for _, f := range []struct {
+		raw  []byte
+		into any
+	}{{counts, &r.Changes}, {logCounts, &r.LogChanges}, {resources, &r.Resources}} {
+		if f.raw == nil {
+			continue
+		}
+		if err := json.Unmarshal(f.raw, f.into); err != nil {
+			return r, fmt.Errorf("decode run changes: %w", err)
+		}
+	}
+	if len(r.Resources) == 0 {
+		r.Resources = nil
 	}
 	return r, nil
 }

@@ -13,8 +13,12 @@ import (
 
 const _upsertRun = `
 INSERT INTO runs (namespace, update_name, uid, stack_name, type, commit, commit_source,
-                  state, message, started_at, ended_at, observed_at)
-VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                  state, message, started_at, ended_at, observed_at, log_status)
+VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8, $9, $10, $11, $12,
+        CASE WHEN $8::text IN ('succeeded', 'failed') AND $3::text <> ''
+                  AND $10::timestamptz IS NOT NULL
+                  AND $11::timestamptz IS NOT NULL
+             THEN 'pending' ELSE '' END)
 ON CONFLICT (namespace, update_name) DO UPDATE SET
     uid           = COALESCE(EXCLUDED.uid, runs.uid),
     stack_name    = EXCLUDED.stack_name,
@@ -33,7 +37,9 @@ ON CONFLICT (namespace, update_name) DO UPDATE SET
                          ELSE runs.message END,
     started_at    = COALESCE(runs.started_at, EXCLUDED.started_at),
     ended_at      = COALESCE(runs.ended_at, EXCLUDED.ended_at),
-    observed_at   = EXCLUDED.observed_at
+    observed_at   = EXCLUDED.observed_at,
+    log_status    = CASE WHEN runs.log_status = '' THEN EXCLUDED.log_status
+                         ELSE runs.log_status END
 RETURNING id`
 
 // _backfillRun merges a run seen through Stack.status.lastUpdate (always terminal). It

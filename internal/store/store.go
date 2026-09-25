@@ -61,6 +61,24 @@ const (
 	CommitSourceHistory CommitSource = "history" // exact, from the history file's git.head
 )
 
+// Engine log capture states (runs.log_status).
+const (
+	LogStatusNone        = ""
+	LogStatusPending     = "pending"
+	LogStatusCaptured    = "captured"
+	LogStatusUnavailable = "unavailable"
+)
+
+// LogResource is one changed resource parsed from the engine log.
+type LogResource struct {
+	Op        string `json:"op"`
+	Type      string `json:"type"`
+	Name      string `json:"name"`
+	URN       string `json:"urn"`
+	Diff      string `json:"diff"`
+	Truncated bool   `json:"truncated,omitempty"`
+}
+
 // Stack is one row of the stacks table.
 type Stack struct {
 	Namespace   string
@@ -95,6 +113,9 @@ type Run struct {
 	EndedAt      *time.Time
 	ObservedAt   time.Time
 	Changes      map[string]int64 // change counts from S3 history; nil when unknown
+	LogStatus    string           // runs.log_status
+	LogChanges   map[string]int64 // change counts from the engine log; nil when not captured
+	Resources    []LogResource    // changed resources from the engine log
 }
 
 // Publisher receives a notification after each committed change.
