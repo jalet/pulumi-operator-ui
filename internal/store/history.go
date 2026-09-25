@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path"
 	"strings"
@@ -53,21 +54,34 @@ func (s *Store) S3Stacks(ctx context.Context) ([]S3Stack, error) {
 	return out, nil
 }
 
-// NewestHistoryKey returns the greatest stored key in bucket that starts with keyPrefix, or ""
-// when none: the StartAfter cursor for listing that prefix.
-func (s *Store) NewestHistoryKey(ctx context.Context, bucket, keyPrefix string) (string, error) {
-	// keyPrefix is a literal: escape LIKE wildcards before appending %.
-	like := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(keyPrefix) + "%"
-	var key *string
-	err := s.pool.QueryRow(ctx, `SELECT max(key) FROM s3_history
-		WHERE bucket = $1 AND key LIKE $2`, bucket, like).Scan(&key)
-	if err != nil {
-		return "", fmt.Errorf("newest history key: %w", err)
-	}
-	if key == nil {
+// HistoryCursor returns the last processed key for bucket and prefix, or "" when none: the
+// StartAfter position for the next listing.
+func (s *Store) HistoryCursor(ctx context.Context, bucket, prefix string) (string, error) {
+	var key string
+	err := s.pool.QueryRow(ctx, `SELECT last_key FROM s3_cursors WHERE bucket = $1 AND prefix = $2`,
+		bucket, prefix).Scan(&key)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
-	return *key, nil
+	if err != nil {
+		return "", fmt.Errorf("history cursor: %w", err)
+	}
+	return key, nil
+}
+
+// SetHistoryCursor records key as processed for bucket and prefix. The cursor only moves
+// forward, so a late or repeated call can never make the poller re-read keys.
+func (s *Store) SetHistoryCursor(ctx context.Context, bucket, prefix, key string,
+	at time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO s3_cursors (bucket, prefix, last_key, updated_at) VALUES ($1, $2, $3, $4)
+		ON CONFLICT (bucket, prefix) DO UPDATE SET
+		    last_key = GREATEST(s3_cursors.last_key, EXCLUDED.last_key),
+		    updated_at = EXCLUDED.updated_at`, bucket, prefix, key, at)
+	if err != nil {
+		return fmt.Errorf("set history cursor: %w", err)
+	}
+	return nil
 }
 
 // InsertHistory stores e as pending; an existing key is left untouched (inserted false).

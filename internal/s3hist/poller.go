@@ -3,9 +3,7 @@ package s3hist
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -51,7 +49,8 @@ type S3API interface {
 // Store is the part of the store the poller uses.
 type Store interface {
 	S3Stacks(ctx context.Context) ([]store.S3Stack, error)
-	NewestHistoryKey(ctx context.Context, bucket, keyPrefix string) (string, error)
+	HistoryCursor(ctx context.Context, bucket, prefix string) (string, error)
+	SetHistoryCursor(ctx context.Context, bucket, prefix, key string, at time.Time) error
 	InsertHistory(ctx context.Context, e store.HistoryEntry, seenAt time.Time) (bool, error)
 	LinkHistory(ctx context.Context, now time.Time) (store.LinkResult, error)
 	SetStackS3Status(ctx context.Context, namespace, name, errMsg string, at time.Time) error
@@ -148,54 +147,76 @@ func (p *Poller) pollStack(ctx context.Context, s store.S3Stack) {
 		p.fail(ctx, s, "client", err)
 		return
 	}
-	keys, err := p.listNew(ctx, client, t)
-	if err != nil {
-		p.fail(ctx, s, "list", err)
+	if err := p.pollTarget(ctx, client, t, now); err != nil {
+		p.fail(ctx, s, err.reason, err.err)
 		return
-	}
-	for _, key := range keys {
-		if err := p.ingest(ctx, client, t, key, now); err != nil {
-			// A transient fetch error stops this Stack's pass: the cursor is the newest stored
-			// key, so storing a later one would skip this key for good.
-			p.fail(ctx, s, "get", err)
-			return
-		}
 	}
 	if err := p.o.Store.SetStackS3Status(ctx, s.Namespace, s.Name, "", now); err != nil {
 		p.o.Log.Error().Err(err).Str("stack", s.Namespace+"/"+s.Name).Msg("s3 history: status")
 	}
 }
 
-// listNew returns the history keys after the newest stored one, in key (time) order.
-func (p *Poller) listNew(ctx context.Context, client S3API, t Target) ([]string, error) {
-	after, err := p.o.Store.NewestHistoryKey(ctx, t.Bucket, t.Prefix)
+type pollError struct {
+	reason string
+	err    error
+}
+
+// pollTarget lists and ingests page by page. The cursor moves past every processed key and
+// is saved after each page and before returning on an error, so a transient failure retries
+// the failed key next tick and the page cap simply resumes next tick.
+func (p *Poller) pollTarget(ctx context.Context, client S3API, t Target,
+	now time.Time) *pollError {
+	cursor, err := p.o.Store.HistoryCursor(ctx, t.Bucket, t.Prefix)
 	if err != nil {
-		return nil, err
+		return &pollError{"db", err}
+	}
+	last := cursor
+	save := func() *pollError {
+		if last == cursor {
+			return nil
+		}
+		if err := p.o.Store.SetHistoryCursor(ctx, t.Bucket, t.Prefix, last, now); err != nil {
+			return &pollError{"db", err}
+		}
+		cursor = last
+		return nil
 	}
 	in := &s3.ListObjectsV2Input{Bucket: aws.String(t.Bucket), Prefix: aws.String(t.Prefix),
 		MaxKeys: aws.Int32(listKeysPerPage)}
-	if after != "" {
-		in.StartAfter = aws.String(after)
+	if cursor != "" {
+		in.StartAfter = aws.String(cursor)
 	}
-	var keys []string
 	for range listPagesMax {
 		out, err := client.ListObjectsV2(ctx, in)
 		if err != nil {
-			return nil, err
+			if serr := save(); serr != nil {
+				return serr
+			}
+			return &pollError{"list", err}
 		}
 		for _, o := range out.Contents {
-			if k := aws.ToString(o.Key); strings.HasSuffix(k, ".history.json") {
-				keys = append(keys, k)
+			key := aws.ToString(o.Key)
+			if strings.HasSuffix(key, ".history.json") {
+				if err := p.ingest(ctx, client, t, key, now); err != nil {
+					if serr := save(); serr != nil {
+						return serr
+					}
+					return &pollError{"get", err}
+				}
 			}
+			last = key // S3 lists in key order, so the cursor only moves forward
+		}
+		if serr := save(); serr != nil {
+			return serr
 		}
 		if !aws.ToBool(out.IsTruncated) {
-			slices.Sort(keys)
-			return keys, nil
+			return nil
 		}
 		in.ContinuationToken = out.NextContinuationToken
 	}
-	return nil, fmt.Errorf("listing exceeds page cap (%d pages of %d keys)", listPagesMax,
-		listKeysPerPage)
+	p.o.Log.Info().Str("prefix", t.Prefix).Int("pages", listPagesMax).
+		Msg("s3 history: page cap reached; resuming next tick")
+	return nil
 }
 
 // ingest fetches and stores one key. Permanent problems with the file (bad kind or result,

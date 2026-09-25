@@ -29,6 +29,16 @@ CREATE TABLE s3_history (
 CREATE INDEX s3_history_pending ON s3_history (ended_at) WHERE link_state = 'pending';
 CREATE INDEX s3_history_prefix ON s3_history (bucket, key);
 
+-- The listing position per history prefix. It moves past every processed key, including
+-- ones skipped as too old or unreadable, and pruning s3_history never resets it.
+CREATE TABLE s3_cursors (
+    bucket     text        NOT NULL,
+    prefix     text        NOT NULL,
+    last_key   text        NOT NULL,
+    updated_at timestamptz NOT NULL,
+    PRIMARY KEY (bucket, prefix)
+);
+
 CREATE TABLE run_changes (
     run_id    bigint NOT NULL REFERENCES runs (id) ON DELETE CASCADE,
     source    text   NOT NULL CHECK (source IN ('s3', 'log')),
@@ -39,6 +49,7 @@ CREATE TABLE run_changes (
 
 -- +goose Down
 DROP TABLE run_changes;
+DROP TABLE s3_cursors;
 DROP TABLE s3_history;
 ALTER TABLE runs DROP CONSTRAINT runs_commit_source_check;
 ALTER TABLE runs ADD CONSTRAINT runs_commit_source_check

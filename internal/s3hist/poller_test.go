@@ -101,7 +101,7 @@ func (f *fakeS3) GetObject(_ context.Context, in *s3.GetObjectInput,
 type fakeStore struct {
 	mu        sync.Mutex
 	stacks    []store.S3Stack
-	newest    map[string]string // bucket|prefix -> key
+	cursors   map[string]string // bucket|prefix -> key
 	inserted  []store.HistoryEntry
 	statuses  map[string]string // ns/name -> error message
 	links     []store.LinkResult
@@ -109,15 +109,30 @@ type fakeStore struct {
 }
 
 func newFakeStore(stacks ...store.S3Stack) *fakeStore {
-	return &fakeStore{stacks: stacks, newest: map[string]string{}, statuses: map[string]string{}}
+	return &fakeStore{stacks: stacks, cursors: map[string]string{}, statuses: map[string]string{}}
 }
 
 func (f *fakeStore) S3Stacks(context.Context) ([]store.S3Stack, error) { return f.stacks, nil }
 
-func (f *fakeStore) NewestHistoryKey(_ context.Context, bucket, prefix string) (string, error) {
+func (f *fakeStore) HistoryCursor(_ context.Context, bucket, prefix string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.newest[bucket+"|"+prefix], nil
+	return f.cursors[bucket+"|"+prefix], nil
+}
+
+func (f *fakeStore) SetHistoryCursor(_ context.Context, bucket, prefix, key string, _ time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if key > f.cursors[bucket+"|"+prefix] {
+		f.cursors[bucket+"|"+prefix] = key
+	}
+	return nil
+}
+
+func (f *fakeStore) cursor() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.cursors["b|"+_prefix]
 }
 
 func (f *fakeStore) InsertHistory(_ context.Context, e store.HistoryEntry, _ time.Time) (bool, error) {
@@ -195,7 +210,7 @@ func TestTickIngestsAndLinks(t *testing.T) {
 
 func TestTickUsesStartAfter(t *testing.T) {
 	st, fs := newFakeStore(_stack), newFakeS3()
-	st.newest["b|"+_prefix] = _prefix + "dev-100.history.json"
+	st.cursors["b|"+_prefix] = _prefix + "dev-100.history.json"
 	newPoller(st, fs).tick(t.Context())
 	if len(fs.lists) == 0 {
 		t.Fatal("no list call")
@@ -217,19 +232,46 @@ func TestTickPaginates(t *testing.T) {
 	}
 }
 
-func TestTickPageCapIsError(t *testing.T) {
+// Hitting the page cap is not an error: the cursor moves with every processed key, so the
+// next tick continues where this one stopped.
+func TestTickPageCapResumesNextTick(t *testing.T) {
 	defer func(n int) { listPagesMax = n }(listPagesMax)
 	listPagesMax = 2
 	st, fs := newFakeStore(_stack), newFakeS3()
 	for i := range 2500 {
 		fs.put("b", fmt.Sprintf("%sdev-%05d.history.json", _prefix, i), historyBody("update", 1790239732))
 	}
-	newPoller(st, fs).tick(t.Context())
-	if msg, _ := st.status("ns/app"); !strings.Contains(msg, "page cap") {
-		t.Fatalf("status = %q, want a page cap error", msg)
+	p := newPoller(st, fs)
+	p.tick(t.Context())
+	if len(st.inserted) != 2000 {
+		t.Fatalf("first tick inserted %d, want 2000", len(st.inserted))
+	}
+	if msg, _ := st.status("ns/app"); msg != "" {
+		t.Errorf("page cap reported as a failure: %q", msg)
+	}
+	p.tick(t.Context())
+	if len(st.inserted) != 2500 {
+		t.Fatalf("after second tick inserted %d, want 2500", len(st.inserted))
 	}
 }
 
+// Keys skipped as too old or unreadable still move the cursor, so they are not re-fetched.
+func TestTickAdvancesPastSkippedEntries(t *testing.T) {
+	st, fs := newFakeStore(_stack), newFakeS3()
+	old := _now.Add(-200 * 24 * time.Hour).Unix()
+	fs.put("b", _prefix+"dev-1.history.json", historyBody("update", old))
+	fs.put("b", _prefix+"dev-2.history.json", []byte("{nope"))
+	p := newPoller(st, fs)
+	p.tick(t.Context())
+	if got := st.cursor(); got != _prefix+"dev-2.history.json" {
+		t.Fatalf("cursor = %q, want past both skipped keys", got)
+	}
+	fetched := len(fs.gets)
+	p.tick(t.Context())
+	if len(fs.gets) != fetched {
+		t.Fatalf("second tick re-fetched skipped keys: %v", fs.gets[fetched:])
+	}
+}
 func TestTickSkipsOldEntries(t *testing.T) {
 	st, fs := newFakeStore(_stack), newFakeS3()
 	old := _now.Add(-200 * 24 * time.Hour).Unix()
@@ -328,5 +370,8 @@ func TestTickStopsAtFetchError(t *testing.T) {
 	}
 	if msg, _ := st.status("ns/app"); !strings.Contains(msg, "connection reset") {
 		t.Fatalf("status = %q", msg)
+	}
+	if got := st.cursor(); got != _prefix+"dev-1.history.json" {
+		t.Fatalf("cursor = %q, want dev-1 so dev-2 is retried", got)
 	}
 }
