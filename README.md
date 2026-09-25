@@ -81,6 +81,10 @@ mise run vuln        # govulncheck
 mise run chart:test  # helm lint + chart rendering tests
 mise run build       # ko build into the local image store
 mise run css         # rebuild internal/web/static/app.css after changing templates or web/styles
+
+# Release: image and chart share one version; the chart's appVersion picks the image tag.
+VERSION=0.1.0-dev.8 mise run image:publish   # ghcr.io/jalet/pulumi-operator-ui:$VERSION
+VERSION=0.1.0-dev.8 mise run chart:publish   # oci://ghcr.io/jalet/helm-charts/pulumi-operator-ui
 ```
 
 Run it locally against kind, a throwaway Postgres and the stub IdP:

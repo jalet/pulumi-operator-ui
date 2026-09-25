@@ -46,3 +46,20 @@ run = "ko build --local ./cmd/pulumi-operator-ui"
 
 [tasks.devidp]
 run = "go run ./hack/devidp"
+
+[tasks."image:publish"]
+description = "Build and push the image to ghcr.io; VERSION=<tag> is required"
+run = '''
+: "${VERSION:?set VERSION, for example VERSION=0.1.0-dev.8}"
+KO_DOCKER_REPO=ghcr.io/jalet/pulumi-operator-ui ko build --bare --tags "$VERSION" ./cmd/pulumi-operator-ui
+'''
+
+[tasks."chart:publish"]
+description = "Package the chart at VERSION (chart version and appVersion) and push it to ghcr.io"
+run = '''
+: "${VERSION:?set VERSION, for example VERSION=0.1.0-dev.8}"
+out="$(mktemp -d)"
+trap 'rm -rf "$out"' EXIT
+helm package charts/pulumi-operator-ui --version "$VERSION" --app-version "$VERSION" -d "$out"
+helm push "$out/pulumi-operator-ui-$VERSION.tgz" oci://ghcr.io/jalet/helm-charts
+'''
