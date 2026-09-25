@@ -44,6 +44,7 @@ func defaults() Config {
 		RetentionAuth:  8760 * time.Hour,
 
 		S3HistoryInterval: 5 * time.Minute,
+		DisplayTimezone:   "UTC",
 	}
 }
 
@@ -186,5 +187,15 @@ func TestParseInvalidDatabaseURLHidesValue(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "s3cret") {
 		t.Fatalf("error leaks the URL: %v", err)
+	}
+}
+func TestDisplayTimezone(t *testing.T) {
+	c, err := Parse(with("--display-timezone=Europe/Stockholm"), testEnv)
+	if err != nil || c.DisplayTimezone != "Europe/Stockholm" {
+		t.Fatalf("got %q err %v", c.DisplayTimezone, err)
+	}
+	if _, err := Parse(with("--display-timezone=Mars/Olympus"), testEnv); err == nil ||
+		!strings.Contains(err.Error(), "--display-timezone") {
+		t.Fatalf("err = %v, want a --display-timezone error", err)
 	}
 }

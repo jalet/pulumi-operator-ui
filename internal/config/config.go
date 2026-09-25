@@ -45,6 +45,8 @@ type Config struct {
 
 	S3HistoryEnabled  bool
 	S3HistoryInterval time.Duration
+
+	DisplayTimezone string // IANA zone for day headers
 }
 
 // Parse reads flags from args (without argv[0]); getenv supplies the DATABASE_URL fallback.
@@ -80,6 +82,7 @@ func Parse(args []string, getenv func(string) string) (Config, error) {
 		"read Pulumi update history from each Stack's S3 backend")
 	fs.DurationVar(&c.S3HistoryInterval, "s3-history.interval", 5*time.Minute,
 		"S3 history poll interval")
+	fs.StringVar(&c.DisplayTimezone, "display-timezone", "UTC", "IANA time zone for day headers")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, fmt.Errorf("parse flags: %w", err)
 	}
@@ -121,6 +124,9 @@ func (c *Config) validate() error {
 	}
 	if c.S3HistoryInterval < time.Minute {
 		errs = append(errs, errors.New("--s3-history.interval must be at least 1m"))
+	}
+	if _, err := time.LoadLocation(c.DisplayTimezone); err != nil {
+		errs = append(errs, fmt.Errorf("--display-timezone: unknown zone %q", c.DisplayTimezone))
 	}
 	if c.SessionAgeMax < _sessionAgeFloor || c.SessionAgeMax > _sessionAgeCeiling {
 		errs = append(errs, errors.New("--session.max-age must be between 5m and 24h"))

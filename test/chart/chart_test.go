@@ -470,3 +470,11 @@ func TestS3HistoryRequiresSecret(t *testing.T) {
 		t.Fatalf("err = %v, output:\n%s", err, out)
 	}
 }
+func TestDisplayTimezone(t *testing.T) {
+	if a := args(t, render(t)); !slices.Contains(a, "--display-timezone=UTC") {
+		t.Errorf("default args lack the timezone: %v", a)
+	}
+	if a := args(t, render(t, "--set", "displayTimezone=Europe/Stockholm")); !slices.Contains(a, "--display-timezone=Europe/Stockholm") {
+		t.Errorf("args lack the configured timezone: %v", a)
+	}
+}

@@ -60,6 +60,7 @@ spec:
             - {{ printf "--session.max-age=%s" $v.session.maxAge | quote }}
             - {{ printf "--retention=%s" $v.retention.runs | quote }}
             - {{ printf "--auth-retention=%s" $v.retention.auth | quote }}
+            - {{ printf "--display-timezone=%s" $v.displayTimezone | quote }}
             {{- if $v.database.caSecret.name }}
             - --database.ca-file=/etc/pou/db-ca/ca.crt
             {{- end }}

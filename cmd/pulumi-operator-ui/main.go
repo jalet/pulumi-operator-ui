@@ -14,6 +14,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	_ "time/tzdata" // the distroless base image may ship no zone files
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -104,8 +105,13 @@ func run(ctx context.Context, args []string, getenv func(string) string,
 	if cfg.S3HistoryEnabled {
 		s3Interval = cfg.S3HistoryInterval
 	}
+	loc, err := time.LoadLocation(cfg.DisplayTimezone) // validated by config.Parse
+	if err != nil {
+		return fmt.Errorf("display timezone: %w", err)
+	}
 	handler := web.New(web.Deps{Store: st, Broker: broker, RequireAuth: authn.Require,
-		AuthRoutes: authn.Routes, Log: logger, Now: time.Now, S3Interval: s3Interval})
+		AuthRoutes: authn.Routes, Log: logger, Now: time.Now, S3Interval: s3Interval,
+		Location: loc})
 	srv := newHTTPServer(cfg.HTTPAddr, handler)
 	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
 		return serveHTTP(ctx, srv)

@@ -46,7 +46,8 @@ type Deps struct {
 	AuthRoutes  func(*http.ServeMux)
 	Log         zerolog.Logger
 	Now         func() time.Time
-	S3Interval  time.Duration // 0 = S3 history off
+	S3Interval  time.Duration  // 0 = S3 history off
+	Location    *time.Location // time zone for day headers; nil = UTC
 
 	// heartbeat overrides the SSE heartbeat interval; zero means the default. Tests only.
 	heartbeat time.Duration
@@ -58,6 +59,7 @@ type server struct {
 	broker     *events.Broker
 	heartbeat  time.Duration
 	s3Interval time.Duration
+	loc        *time.Location
 	log        zerolog.Logger
 	pages      map[string]*template.Template // executed directly, for fragments
 	bases      map[string]*template.Template // never executed; cloned per full page
@@ -87,7 +89,10 @@ func New(d Deps) http.Handler {
 	}
 	s := &server{now: d.Now, store: d.Store, broker: d.Broker, log: d.Log, pages: parsePages(d.Now),
 		bases:     parsePages(d.Now),
-		heartbeat: d.heartbeat, s3Interval: d.S3Interval}
+		heartbeat: d.heartbeat, s3Interval: d.S3Interval, loc: d.Location}
+	if s.loc == nil {
+		s.loc = time.UTC
+	}
 	if s.heartbeat == 0 {
 		s.heartbeat = sseHeartbeatIntervalDefault
 	}

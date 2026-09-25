@@ -98,6 +98,9 @@ networkPolicy:
     port: 443
 
 # Optional: read Pulumi's update history from each Stack's S3 backend (see README).
+# IANA time zone for the stack timeline's day headers ("Today", "Yesterday").
+displayTimezone: UTC
+
 s3History:
   enabled: false
   interval: 5m
