@@ -29,6 +29,8 @@ type HistoryEntry struct {
 	StartedAt, EndedAt                time.Time
 	Commit                            string
 	Counts                            map[string]int64
+	// SeenAt is set when read back; InsertHistory takes it as an argument instead.
+	SeenAt time.Time
 }
 
 // S3Stacks returns active stacks with an s3:// backend and a known project and pulumi stack.
@@ -128,7 +130,8 @@ const (
 func (s *Store) LinkHistory(ctx context.Context, now time.Time) (LinkResult, error) {
 	var res LinkResult
 	rows, err := s.pool.Query(ctx, `
-		SELECT key, bucket, namespace, stack_name, type, state, started_at, ended_at, commit, counts
+		SELECT key, bucket, namespace, stack_name, type, state, started_at, ended_at, commit, counts,
+		       seen_at
 		FROM s3_history WHERE link_state = 'pending' ORDER BY ended_at, key LIMIT $1`,
 		linkBatchRowsMax)
 	if err != nil {
@@ -176,13 +179,21 @@ func (s *Store) linkOne(ctx context.Context, e HistoryEntry, now time.Time) (
 		id     int64
 		source CommitSource
 	}
+	// A candidate either started within linkWindow of the entry, or was backfilled from
+	// Stack.status.lastUpdate (no start time, no UID): that run is the stack's last update as
+	// of observed_at, so it matches only the newest entry that ended by then.
 	rows, err := tx.Query(ctx, `
 		SELECT r.id, r.commit_source FROM runs r
 		WHERE r.namespace = $1 AND r.stack_name = $2 AND r.type = $3 AND r.state = $4
-		  AND r.started_at BETWEEN $5::timestamptz - make_interval(secs => $6)
-		                       AND $5::timestamptz + make_interval(secs => $6)
 		  AND NOT EXISTS (SELECT 1 FROM run_changes c WHERE c.run_id = r.id AND c.source = 's3')
-		LIMIT 2`, e.Namespace, e.StackName, e.Type, e.State, e.StartedAt, linkWindow.Seconds())
+		  AND (r.started_at BETWEEN $5::timestamptz - make_interval(secs => $6)
+		                        AND $5::timestamptz + make_interval(secs => $6)
+		       OR (r.started_at IS NULL AND r.uid IS NULL AND $7::timestamptz <= r.observed_at
+		           AND NOT EXISTS (SELECT 1 FROM s3_history h
+		                           WHERE h.namespace = r.namespace AND h.stack_name = r.stack_name
+		                             AND h.ended_at > $7 AND h.ended_at <= r.observed_at)))
+		LIMIT 2`, e.Namespace, e.StackName, e.Type, e.State, e.StartedAt, linkWindow.Seconds(),
+		e.EndedAt)
 	if err != nil {
 		return 0, 0, fmt.Errorf("link %s: candidates: %w", e.Key, err)
 	}
@@ -204,7 +215,9 @@ func (s *Store) linkOne(ctx context.Context, e HistoryEntry, now time.Time) (
 	case len(cands) == 1:
 		outcome, runID = outcomeLinked, cands[0].id
 		err = linkRun(ctx, tx, e, runID, cands[0].source)
-	case e.EndedAt.Before(now.Add(-importGrace)):
+	case e.EndedAt.Before(now.Add(-importGrace)) && e.SeenAt.Before(now.Add(-importGrace)):
+		// Both clocks: after downtime an old entry is seen at once, and the controllers
+		// need a moment to record its Update before an import would duplicate it.
 		outcome = outcomeImported
 		runID, err = importRun(ctx, tx, e)
 	default:
@@ -222,6 +235,11 @@ func (s *Store) linkOne(ctx context.Context, e HistoryEntry, now time.Time) (
 func linkRun(ctx context.Context, tx pgx.Tx, e HistoryEntry, runID int64, src CommitSource) error {
 	if err := insertChanges(ctx, tx, runID, e.Counts); err != nil {
 		return err
+	}
+	// Backfilled runs have no times of their own; the history entry supplies them.
+	if _, err := tx.Exec(ctx, `UPDATE runs SET started_at = COALESCE(started_at, $2),
+		ended_at = COALESCE(ended_at, $3) WHERE id = $1`, runID, e.StartedAt, e.EndedAt); err != nil {
+		return fmt.Errorf("fill run times: %w", err)
 	}
 	if e.Commit != "" && (src == "" || src == CommitSourceStack) {
 		if _, err := tx.Exec(ctx, `UPDATE runs SET commit = $2, commit_source = 'history'
@@ -282,6 +300,6 @@ func setLinkState(ctx context.Context, tx pgx.Tx, key, state string, runID int64
 func scanHistoryEntry(row pgx.CollectableRow) (HistoryEntry, error) {
 	var e HistoryEntry
 	err := row.Scan(&e.Key, &e.Bucket, &e.Namespace, &e.StackName, &e.Type, &e.State,
-		&e.StartedAt, &e.EndedAt, &e.Commit, &e.Counts)
+		&e.StartedAt, &e.EndedAt, &e.Commit, &e.Counts, &e.SeenAt)
 	return e, err
 }

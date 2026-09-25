@@ -291,3 +291,55 @@ func TestLinkPublishesEvents(t *testing.T) {
 		t.Errorf("events (-want +got):\n%s", diff)
 	}
 }
+
+// A run backfilled from Stack.status.lastUpdate has no start time; it is the stack's last
+// update as of observed_at, so it matches the newest entry that ended before then.
+func TestLinkBackfilledRun(t *testing.T) {
+	s, _ := newTestStore(t)
+	b := Run{Namespace: "ns", UpdateName: "prod-1a0d", StackName: "s", Type: RunTypeUp,
+		State: RunStateSucceeded, Commit: "c", CommitSource: CommitSourceUpdate,
+		ObservedAt: _t0.Add(time.Hour)}
+	must(t, s.BackfillRun(t.Context(), b))
+	e := seedEntry(t, s, _histKey, _t0.Add(9*time.Minute))
+	if got := link(t, s, _t0.Add(2*time.Hour)); got != (LinkResult{Linked: 1}) {
+		t.Fatalf("result = %+v, want the backfilled run linked", got)
+	}
+	r := getRunByName(t, s, "ns", "prod-1a0d")
+	if r.StartedAt == nil || !r.StartedAt.Equal(e.StartedAt) || r.EndedAt == nil || !r.EndedAt.Equal(e.EndedAt) {
+		t.Errorf("times not filled from history: %v..%v", r.StartedAt, r.EndedAt)
+	}
+	if changesOf(t, s, r.ID) == nil || countRuns(t, s) != 1 {
+		t.Error("backfilled run not linked, or a duplicate was imported")
+	}
+}
+
+func TestBackfilledRunMatchesOnlyNewestEntryBeforeObserved(t *testing.T) {
+	s, _ := newTestStore(t)
+	must(t, s.BackfillRun(t.Context(), Run{Namespace: "ns", UpdateName: "prod-1a0d", StackName: "s",
+		Type: RunTypeUp, State: RunStateSucceeded, ObservedAt: _t0.Add(time.Hour)}))
+	seedEntry(t, s, "p/.pulumi/history/proj/dev/dev-1.history.json", _t0)
+	seedEntry(t, s, "p/.pulumi/history/proj/dev/dev-2.history.json", _t0.Add(10*time.Minute))
+	if got := link(t, s, _t0.Add(2*time.Hour)); got != (LinkResult{Linked: 1, Imported: 1}) {
+		t.Fatalf("result = %+v, want the newer entry linked and the older imported", got)
+	}
+	if state, _ := historyRow(t, s, "p/.pulumi/history/proj/dev/dev-2.history.json"); state != "linked" {
+		t.Errorf("newest entry = %s, want linked", state)
+	}
+}
+
+// After downtime an old entry must not be imported before the controllers had a chance to
+// record its Update, so the grace period also counts from when the entry was first seen.
+func TestImportWaitsForSeenGrace(t *testing.T) {
+	s, _ := newTestStore(t)
+	now := _t0.Add(24 * time.Hour)
+	e := entry(_histKey, RunTypeUp, RunStateSucceeded, _t0)
+	if _, err := s.InsertHistory(t.Context(), e, now.Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if got := link(t, s, now); got != (LinkResult{Pending: 1}) {
+		t.Fatalf("just seen: %+v, want pending", got)
+	}
+	if got := link(t, s, now.Add(16*time.Minute)); got != (LinkResult{Imported: 1}) {
+		t.Fatalf("seen 17m ago: %+v, want imported", got)
+	}
+}
