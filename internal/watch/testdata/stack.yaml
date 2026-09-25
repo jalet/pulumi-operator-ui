@@ -1,0 +1,6 @@
+apiVersion: pulumi.com/v1
+kind: Stack
+metadata:
+  name: app
+spec:
+  stack: dev

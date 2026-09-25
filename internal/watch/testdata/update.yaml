@@ -1,0 +1,7 @@
+apiVersion: auto.pulumi.com/v1alpha1
+kind: Update
+metadata:
+  name: app-u1
+spec:
+  type: up
+  stackName: dev
