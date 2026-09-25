@@ -129,7 +129,8 @@ func TestRBACReadOnly(t *testing.T) {
 			got[g] = append(got[g], strs(r["resources"])...)
 		}
 	}
-	want := map[string][]string{"pulumi.com": {"stacks"}, "auto.pulumi.com": {"updates"}}
+	want := map[string][]string{"pulumi.com": {"stacks"}, "auto.pulumi.com": {"updates"},
+		"": {"pods", "pods/log"}}
 	for g, res := range want {
 		if !slices.Equal(got[g], res) {
 			t.Errorf("group %s resources = %v, want %v", g, got[g], res)
@@ -156,6 +157,22 @@ func TestNamespacedRBAC(t *testing.T) {
 		slices.Sort(nss)
 		if !slices.Equal(nss, []string{"a", "b"}) {
 			t.Errorf("%s namespaces = %v, want [a b]", kind, nss)
+		}
+	}
+	for _, role := range find(objs, "Role") {
+		core := 0
+		for _, r := range rulesOf(t, role) {
+			if !slices.Contains(strs(r["apiGroups"]), "") {
+				continue
+			}
+			core++
+			if !slices.Equal(strs(r["resources"]), []string{"pods", "pods/log"}) ||
+				!slices.Equal(strs(r["verbs"]), []string{"get"}) {
+				t.Errorf("%s core rule = %v", role.GetNamespace(), r)
+			}
+		}
+		if core != 1 {
+			t.Errorf("%s: %d core rules, want 1 (pods, pods/log)", role.GetNamespace(), core)
 		}
 	}
 	if !slices.Contains(args(t, objs), "--namespaces=a,b") {

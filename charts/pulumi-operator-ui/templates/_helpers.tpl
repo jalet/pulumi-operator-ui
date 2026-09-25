@@ -37,4 +37,7 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
 - apiGroups: ["auto.pulumi.com"]
   resources: ["updates"]
   verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods", "pods/log"]
+  verbs: ["get"]
 {{- end -}}
