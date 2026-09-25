@@ -106,7 +106,7 @@ func sampleReader() *fakeReader {
 			Stack: store.Stack{Namespace: "ns", Name: "app", Ready: true, LastCommit: "0123456789abcdef",
 				UpdatedAt: _now.Add(-time.Hour)},
 			LastUp: &store.RunBrief{ID: 7, State: store.RunStateSucceeded, At: ended,
-				Commit: "<script>alert(1)</script>"},
+				Commit: "<script>alert(1)</script>", StartedAt: &started, EndedAt: &ended},
 		}},
 		runs: []store.Run{{
 			ID: 7, Namespace: "ns", UpdateName: "app-u1", StackName: "app", Type: store.RunTypeUp,
@@ -167,7 +167,8 @@ func TestStackListHasSSEWiring(t *testing.T) {
 	_, body := get(t, srv, "/")
 	for _, want := range []string{
 		`sse-connect="/events"`,
-		`hx-trigger="sse:stacks, sse:resync"`,
+		`id="stack-overview"`,
+		`hx-trigger="sse:stacks, sse:resync, sse:stack-any"`,
 		`hx-trigger="sse:` + events.StackEventName("ns", "app") + `"`,
 		`hx-get="/fragments/stacks/ns/app"`,
 		`<script src="/static/htmx.min.js"`,
@@ -186,7 +187,7 @@ func TestFragments(t *testing.T) {
 	tests := []struct {
 		path, want string
 	}{
-		{"/fragments/stacks", "<tbody"},
+		{"/fragments/stacks", `id="stack-overview"`},
 		{"/fragments/stacks/ns/app", "<tr"},
 		{"/fragments/stacks/ns/app/runs", "app-u1"},
 		{"/fragments/runs/7/row", "run-7"},
@@ -212,7 +213,7 @@ func TestDeletedStackRowFragmentIsEmpty(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || strings.TrimSpace(body) != "" {
 		t.Fatalf("got %d %q, want empty 200 so htmx removes the row", resp.StatusCode, body)
 	}
-	if _, page := get(t, srv, "/stacks/ns/app"); !strings.Contains(page, "deleted") {
+	if _, page := get(t, srv, "/stacks/ns/app"); !strings.Contains(page, "Deleted") {
 		t.Fatal("stack page does not mark the stack deleted")
 	}
 }
@@ -397,5 +398,75 @@ func TestEmptyTimelineOffersPreviews(t *testing.T) {
 	if !strings.Contains(body, "No up, refresh or destroy runs recorded.") ||
 		!strings.Contains(body, `href="/stacks/ns/app?previews=1"`) {
 		t.Fatalf("empty state missing:\n%s", body)
+	}
+}
+
+func twoNamespaceReader() *fakeReader {
+	r := sampleReader()
+	r.stacks = append(r.stacks, store.StackSummary{Stack: store.Stack{Namespace: "infra",
+		Name: "net", Stalled: true, UpdatedAt: _now}})
+	return r
+}
+
+func TestListCounters(t *testing.T) {
+	srv := newServer(t, twoNamespaceReader(), nil)
+	_, body := get(t, srv, "/")
+	if n := strings.Count(body, `<div class="counter">`); n != 4 {
+		t.Fatalf("%d counters, want 4", n)
+	}
+	for _, want := range []string{
+		`>2</div><div class="text-xs text-muted">Stacks</div>`,
+		`>1</div><div class="text-xs text-muted">Ready</div>`,
+		`>0</div><div class="text-xs text-muted">Reconciling</div>`,
+		`>1</div><div class="text-xs text-muted">Needs attention</div>`,
+		`<span class="pill tone-bad">`, // the stalled stack's health pill
+		`5m0s`,                         // last up duration
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body lacks %s", want)
+		}
+	}
+}
+
+func TestNamespaceChips(t *testing.T) {
+	srv := newServer(t, twoNamespaceReader(), nil)
+	_, body := get(t, srv, "/?ns=ns")
+	for _, want := range []string{
+		`<a class="chip" href="/">All</a>`,
+		`<a class="chip chip-on" href="/?ns=ns" aria-current="true">ns</a>`,
+		`<a class="chip" href="/?ns=infra">infra</a>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body lacks %s", want)
+		}
+	}
+	if strings.Contains(body, "/stacks/infra/net") {
+		t.Error("filtered list shows a stack from another namespace")
+	}
+	resp, body := get(t, srv, "/?ns=other")
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "No stacks in this namespace") {
+		t.Fatalf("unknown namespace = %d", resp.StatusCode)
+	}
+	if _, all := get(t, srv, "/"); !strings.Contains(all, `<a class="chip chip-on" href="/" aria-current="true">All</a>`) {
+		t.Error("All chip not selected without ns")
+	}
+}
+
+func TestListFragmentKeepsNamespace(t *testing.T) {
+	srv := newServer(t, twoNamespaceReader(), nil)
+	_, body := get(t, srv, "/fragments/stacks?ns=infra")
+	if !strings.Contains(body, `hx-get="/fragments/stacks?ns=infra"`) {
+		t.Error("overview fragment dropped the namespace")
+	}
+	if strings.Contains(body, "<html") {
+		t.Error("fragment returned a full page")
+	}
+}
+
+func TestListLayoutScrolls(t *testing.T) {
+	srv := newServer(t, sampleReader(), nil)
+	_, body := get(t, srv, "/")
+	if !strings.Contains(body, `<div class="panel overflow-x-auto">`) {
+		t.Error("stack table is not in a horizontally scrolling panel")
 	}
 }

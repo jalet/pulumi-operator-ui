@@ -212,3 +212,17 @@ func TestLayoutHandlesSessionExpiry(t *testing.T) {
 		}
 	}
 }
+
+func TestSSEAlsoSendsStackAny(t *testing.T) {
+	srv, b := newSSEServer(t, time.Hour, time.Hour)
+	s := openStream(t, srv)
+	s.next(t, time.Second) // resync
+	b.Publish(events.Event{Kind: events.KindRun, RunID: 1})
+	b.Publish(events.Event{Kind: events.KindStack, Namespace: "ns", Stack: "app"})
+	want := []string{"event: run-1", "event: " + events.StackEventName("ns", "app"), "event: stack-any"}
+	for _, w := range want {
+		if line, _ := s.next(t, time.Second); line != w {
+			t.Fatalf("line = %q, want %q", line, w)
+		}
+	}
+}

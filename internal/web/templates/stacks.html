@@ -1,24 +1,33 @@
 {{define "title"}}Pulumi stacks{{end}}
 
 {{define "content"}}
-<h1>Stacks</h1>
-<table class="grid">
-<thead><tr><th>Stack</th><th>Status</th><th>Last preview</th><th>Last up</th><th>Commit</th><th>Seen</th></tr></thead>
-{{template "stack-rows" .}}
-</table>
+<h1 class="sr-only">Stacks</h1>
+{{template "stack-overview" .}}
 {{end}}
 
-{{define "stack-rows"}}<tbody hx-get="/fragments/stacks" hx-trigger="sse:stacks, sse:resync" hx-swap="outerHTML">
-{{range .Stacks}}{{template "stack-row" .}}{{else}}<tr><td colspan="6" class="muted">No stacks found.</td></tr>{{end}}
-</tbody>{{end}}
+{{define "stack-overview"}}<section id="stack-overview" hx-get="/fragments/stacks{{if .NS}}?ns={{.NS}}{{end}}" hx-trigger="sse:stacks, sse:resync, sse:stack-any" hx-swap="outerHTML">
+<div class="mb-4 flex flex-wrap gap-2">{{range .Counters}}{{template "counter" .}}{{end}}</div>
+<nav class="mb-3 flex flex-wrap gap-2" aria-label="Namespaces">{{range .Chips}}{{template "chip" .}}{{end}}</nav>
+<div class="panel overflow-x-auto">
+<table class="w-full text-sm">
+<thead><tr class="border-b border-line text-left text-[11px] uppercase tracking-wider text-muted">
+<th class="px-3 py-2 font-semibold">Stack</th><th class="px-3 py-2 font-semibold">Health</th><th class="px-3 py-2 font-semibold">Last up</th><th class="px-3 py-2 font-semibold">Last preview</th><th class="px-3 py-2 font-semibold">Commit</th>
+</tr></thead>
+<tbody>
+{{range .Stacks}}{{template "stack-row" .}}{{else}}<tr><td colspan="5" class="px-3 py-8 text-center text-muted">{{if $.NS}}No stacks in this namespace.{{else}}No stacks found.{{end}}</td></tr>{{end}}
+</tbody>
+</table>
+</div>
+</section>{{end}}
 
-{{define "stack-row"}}<tr id="{{stackEvent .Namespace .Name}}" hx-get="/fragments/stacks/{{.Namespace}}/{{.Name}}" hx-trigger="sse:{{stackEvent .Namespace .Name}}" hx-swap="outerHTML">
-  <td><a href="/stacks/{{.Namespace}}/{{.Name}}"><span class="muted">{{.Namespace}}/</span>{{.Name}}</a></td>
-  <td>{{template "stack-status" .}}</td>
-  <td>{{template "brief" .LastPreview}}</td>
-  <td>{{template "brief" .LastUp}}</td>
-  <td>{{if .LastCommit}}<code class="commit">{{shortCommit .LastCommit}}</code>{{else}}<span class="muted">none</span>{{end}}</td>
-  <td><time datetime="{{iso .UpdatedAt}}">{{age .UpdatedAt}}</time></td>
+{{define "stack-row"}}<tr id="{{stackEvent .Namespace .Name}}" class="border-b border-line last:border-0" hx-get="/fragments/stacks/{{.Namespace}}/{{.Name}}" hx-trigger="sse:{{stackEvent .Namespace .Name}}" hx-swap="outerHTML">
+  <td class="px-3 py-2.5 whitespace-nowrap"><a class="font-bold hover:underline" href="/stacks/{{.Namespace}}/{{.Name}}">{{.Name}}</a> <span class="text-muted">{{.Namespace}}</span></td>
+  <td class="px-3 py-2.5">{{template "pill" (health .)}}</td>
+  <td class="px-3 py-2.5">{{template "last-run" .LastUp}}</td>
+  <td class="px-3 py-2.5">{{template "last-run" .LastPreview}}</td>
+  <td class="px-3 py-2.5">{{if .LastCommit}}<code>{{shortCommit .LastCommit}}</code>{{else}}<span class="text-muted">none</span>{{end}}</td>
 </tr>{{end}}
 
-{{define "stack-status"}}{{if .DeletedAt}}<span class="badge badge-deleted">deleted</span>{{else}}{{if .Ready}}<span class="badge badge-ok">ready</span>{{else}}<span class="badge badge-warn">not ready</span>{{end}}{{if .Reconciling}} <span class="badge">reconciling</span>{{end}}{{if .Stalled}} <span class="badge badge-bad">stalled</span>{{end}}{{end}}{{end}}
+{{define "last-run"}}{{if .}}<a class="inline-flex items-center gap-2 whitespace-nowrap hover:underline" href="/runs/{{.ID}}">{{template "pill" (stateBadge .State)}}<span class="text-xs text-muted">{{age .At}}{{with duration .StartedAt .EndedAt}} · {{.}}{{end}}</span></a>{{else}}<span class="text-muted">none</span>{{end}}{{end}}
+
+{{define "stack-status"}}{{template "pill" (health .)}}{{end}}

@@ -45,7 +45,11 @@ func TestListStacksLatestPerType(t *testing.T) {
 	if got[0].LastPreview.Commit != "abc" || got[0].LastPreview.State != RunStateSucceeded {
 		t.Fatalf("LastPreview = %+v", got[0].LastPreview)
 	}
-	if got[0].LastUp == nil || got[0].LastUp.ID != getRunByName(t, s, "ns", "u1").ID {
+	if got[0].LastUp == nil || got[0].LastUp.StartedAt == nil ||
+		!got[0].LastUp.StartedAt.Equal(_t0.Add(30*time.Minute)) {
+		t.Fatalf("LastUp times = %+v", got[0].LastUp)
+	}
+	if got[0].LastUp.ID != getRunByName(t, s, "ns", "u1").ID {
 		t.Fatalf("LastUp = %+v", got[0].LastUp)
 	}
 }

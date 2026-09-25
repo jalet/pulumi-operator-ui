@@ -19,10 +19,12 @@ const (
 
 // RunBrief is the summary of a stack's latest run of one type.
 type RunBrief struct {
-	ID     int64
-	State  RunState
-	At     time.Time // COALESCE(ended_at, started_at, observed_at)
-	Commit string
+	ID        int64
+	State     RunState
+	At        time.Time // COALESCE(ended_at, started_at, observed_at)
+	Commit    string
+	StartedAt *time.Time
+	EndedAt   *time.Time
 }
 
 // StackSummary is a stack with its latest preview and up.
@@ -40,15 +42,18 @@ type Cursor struct {
 
 const _stackSummarySelect = `
 SELECT s.namespace, s.name, s.ready, s.reconciling, s.stalled, s.last_commit, s.updated_at,
-       s.deleted_at, p.id, p.state, p.at, p.commit, u.id, u.state, u.at, u.commit
+       s.deleted_at, p.id, p.state, p.at, p.commit, p.started_at, p.ended_at,
+       u.id, u.state, u.at, u.commit, u.started_at, u.ended_at
 FROM stacks s
 LEFT JOIN LATERAL (
-    SELECT id, state, commit, COALESCE(ended_at, started_at, observed_at) AS at
+    SELECT id, state, commit, started_at, ended_at,
+           COALESCE(ended_at, started_at, observed_at) AS at
     FROM runs r
     WHERE r.namespace = s.namespace AND r.stack_name = s.name AND r.type = 'preview'
     ORDER BY COALESCE(r.started_at, r.observed_at) DESC, r.id DESC LIMIT 1) p ON true
 LEFT JOIN LATERAL (
-    SELECT id, state, commit, COALESCE(ended_at, started_at, observed_at) AS at
+    SELECT id, state, commit, started_at, ended_at,
+           COALESCE(ended_at, started_at, observed_at) AS at
     FROM runs r
     WHERE r.namespace = s.namespace AND r.stack_name = s.name AND r.type = 'up'
     ORDER BY COALESCE(r.started_at, r.observed_at) DESC, r.id DESC LIMIT 1) u ON true`
@@ -206,29 +211,37 @@ func scanRun(row pgx.CollectableRow) (Run, error) {
 
 func scanStackSummary(row pgx.CollectableRow) (StackSummary, error) {
 	var (
-		st             StackSummary
-		pID, uID       *int64
-		pState, uState *RunState
-		pAt, uAt       *time.Time
-		pCom, uCom     *string
+		st   StackSummary
+		p, u briefCols
 	)
 	err := row.Scan(&st.Namespace, &st.Name, &st.Ready, &st.Reconciling, &st.Stalled,
 		&st.LastCommit, &st.UpdatedAt, &st.DeletedAt,
-		&pID, &pState, &pAt, &pCom, &uID, &uState, &uAt, &uCom)
+		&p.id, &p.state, &p.at, &p.commit, &p.started, &p.ended,
+		&u.id, &u.state, &u.at, &u.commit, &u.started, &u.ended)
 	if err != nil {
 		return StackSummary{}, err
 	}
-	st.LastPreview = brief(pID, pState, pAt, pCom)
-	st.LastUp = brief(uID, uState, uAt, uCom)
+	st.LastPreview = p.brief()
+	st.LastUp = u.brief()
 	return st, nil
 }
 
-func brief(id *int64, state *RunState, at *time.Time, commit *string) *RunBrief {
-	if id == nil {
+// briefCols receives one LEFT JOIN LATERAL run; every column is NULL when no run exists.
+type briefCols struct {
+	id             *int64
+	state          *RunState
+	at             *time.Time
+	commit         *string
+	started, ended *time.Time
+}
+
+func (c briefCols) brief() *RunBrief {
+	if c.id == nil {
 		return nil
 	}
-	if state == nil || at == nil || commit == nil {
+	if c.state == nil || c.at == nil || c.commit == nil {
 		panic("invariant violated: run brief columns are NOT NULL when id is set")
 	}
-	return &RunBrief{ID: *id, State: *state, At: *at, Commit: *commit}
+	return &RunBrief{ID: *c.id, State: *c.state, At: *c.at, Commit: *c.commit,
+		StartedAt: c.started, EndedAt: c.ended}
 }

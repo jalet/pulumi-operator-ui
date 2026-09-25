@@ -1,6 +1,11 @@
 package web
 
-import "github.com/jalet/pulumi-operator-ui/internal/store"
+import (
+	"net/url"
+	"slices"
+
+	"github.com/jalet/pulumi-operator-ui/internal/store"
+)
 
 // badge is a status label with its tone, the suffix of a tone-* class in app.css:
 // ok, run, att, bad or mute.
@@ -53,4 +58,62 @@ func countStacks(stacks []store.StackSummary) counters {
 		}
 	}
 	return c
+}
+
+// chip is a filter link; On marks the selected one.
+type chip struct {
+	Label, Href string
+	On          bool
+}
+
+// counterView is one summary card; Tone colors the value (ok, run, att or "").
+type counterView struct {
+	Label string
+	Value int
+	Tone  string
+}
+
+type listPage struct {
+	Stacks     []store.StackSummary
+	Counts     counters
+	Counters   []counterView
+	Namespaces []string
+	Chips      []chip
+	NS         string
+}
+
+// buildListPage filters stacks to namespace ns ("" = all). Namespaces and chips always come
+// from every stack, so the chips stay visible when a filter matches nothing.
+func buildListPage(all []store.StackSummary, ns string) listPage {
+	seen := map[string]bool{}
+	var namespaces []string
+	shown := all
+	if ns != "" {
+		shown = nil
+	}
+	for _, s := range all {
+		if !seen[s.Namespace] {
+			seen[s.Namespace] = true
+			namespaces = append(namespaces, s.Namespace)
+		}
+		if ns != "" && s.Namespace == ns {
+			shown = append(shown, s)
+		}
+	}
+	slices.Sort(namespaces)
+	c := countStacks(shown)
+	chips := make([]chip, 0, len(namespaces)+1)
+	chips = append(chips, chip{Label: "All", Href: "/", On: ns == ""})
+	for _, n := range namespaces {
+		chips = append(chips, chip{Label: n, Href: "/?ns=" + url.QueryEscape(n), On: n == ns})
+	}
+	return listPage{
+		Stacks: shown, Counts: c, Namespaces: namespaces, Chips: chips, NS: ns,
+		Counters: []counterView{
+			{Label: "Stacks", Value: c.Total},
+			{Label: "Ready", Value: c.Ready, Tone: "ok"},
+			{Label: "Reconciling", Value: c.Reconciling, Tone: "run"},
+			{Label: "Needs attention", Value: c.Attention, Tone: "att"},
+		},
+	}
 }

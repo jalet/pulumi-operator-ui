@@ -149,7 +149,7 @@ func (s *server) index(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, err)
 		return
 	}
-	s.render(w, "stacks", "layout", struct{ Stacks []store.StackSummary }{stacks}, http.StatusOK)
+	s.render(w, "stacks", "layout", buildListPage(stacks, r.URL.Query().Get("ns")), http.StatusOK)
 }
 
 func (s *server) stackRows(w http.ResponseWriter, r *http.Request) {
@@ -158,7 +158,7 @@ func (s *server) stackRows(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, err)
 		return
 	}
-	s.render(w, "stacks", "stack-rows", struct{ Stacks []store.StackSummary }{stacks},
+	s.render(w, "stacks", "stack-overview", buildListPage(stacks, r.URL.Query().Get("ns")),
 		http.StatusOK)
 }
 

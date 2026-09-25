@@ -80,6 +80,10 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 			if !sseSend(w, rc, "event: "+e.Name()+"\ndata:\n\n") {
 				return
 			}
+			// The list page counters depend on every stack, so they listen to this one.
+			if e.Kind == events.KindStack && !sseSend(w, rc, "event: stack-any\ndata:\n\n") {
+				return
+			}
 		case <-t.C:
 			if !sseSend(w, rc, ": ping\n\n") {
 				return

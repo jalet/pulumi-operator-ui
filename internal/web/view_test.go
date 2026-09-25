@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/jalet/pulumi-operator-ui/internal/store"
 )
 
@@ -58,5 +60,30 @@ func TestCountStacks(t *testing.T) {
 	want := counters{Total: 5, Ready: 2, Reconciling: 1, Attention: 2}
 	if got := countStacks(give); got != want {
 		t.Fatalf("countStacks = %+v, want %+v", got, want)
+	}
+}
+
+func TestBuildListPage(t *testing.T) {
+	all := []store.StackSummary{
+		{Stack: store.Stack{Namespace: "infra", Name: "net", Ready: true}},
+		{Stack: store.Stack{Namespace: "pulumi", Name: "prod", Stalled: true}},
+		{Stack: store.Stack{Namespace: "infra", Name: "dns", Reconciling: true}},
+	}
+	got := buildListPage(all, "infra")
+	if len(got.Stacks) != 2 || got.NS != "infra" {
+		t.Fatalf("stacks = %d, ns = %q", len(got.Stacks), got.NS)
+	}
+	if diff := cmp.Diff([]string{"infra", "pulumi"}, got.Namespaces); diff != "" {
+		t.Errorf("namespaces (-want +got):\n%s", diff)
+	}
+	if want := (counters{Total: 2, Ready: 1, Reconciling: 1}); got.Counts != want {
+		t.Errorf("counts = %+v, want %+v", got.Counts, want)
+	}
+	none := buildListPage(all, "nope")
+	if len(none.Stacks) != 0 || none.Counts.Total != 0 || len(none.Namespaces) != 2 {
+		t.Errorf("unknown namespace: %+v", none)
+	}
+	if every := buildListPage(all, ""); len(every.Stacks) != 3 || every.Counts.Attention != 1 {
+		t.Errorf("all: %+v", every)
 	}
 }
