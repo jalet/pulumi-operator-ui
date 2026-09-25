@@ -269,3 +269,37 @@ func TestStackStatsEmpty(t *testing.T) {
 		t.Fatalf("got %+v, %v", got, err)
 	}
 }
+
+func TestRunsCarryChanges(t *testing.T) {
+	s, _ := newTestStore(t)
+	mustUpsert(t, s, runAt("ns", "s", "with", RunTypeUp, _t0))
+	mustUpsert(t, s, runAt("ns", "s", "without", RunTypeUp, _t0.Add(time.Minute)))
+	with := getRunByName(t, s, "ns", "with")
+	if _, err := s.pool.Exec(t.Context(), `INSERT INTO run_changes (run_id, source, counts)
+		VALUES ($1, 's3', '{"create": 1}')`, with.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetRun(t.Context(), with.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(map[string]int64{"create": 1}, got.Changes); diff != "" {
+		t.Errorf("GetRun changes (-want +got):\n%s", diff)
+	}
+	runs, _, err := s.ListRuns(t.Context(), "ns", "s", RunFilter{}, nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range runs {
+		switch r.UpdateName {
+		case "with":
+			if r.Changes["create"] != 1 {
+				t.Errorf("ListRuns lost changes: %+v", r.Changes)
+			}
+		case "without":
+			if r.Changes != nil {
+				t.Errorf("run without changes has %+v", r.Changes)
+			}
+		}
+	}
+}

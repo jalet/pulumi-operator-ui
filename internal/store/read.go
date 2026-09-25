@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -61,8 +62,8 @@ LEFT JOIN LATERAL (
 
 const _runSelect = `
 SELECT id, namespace, update_name, COALESCE(uid, ''), stack_name, type, commit, commit_source,
-       state, message, started_at, ended_at, observed_at
-FROM runs`
+       state, message, started_at, ended_at, observed_at, c.counts
+FROM runs LEFT JOIN run_changes c ON c.run_id = runs.id AND c.source = 's3'`
 
 // ListStacks returns active (not soft-deleted) stacks ordered by namespace and name.
 func (s *Store) ListStacks(ctx context.Context) ([]StackSummary, error) {
@@ -204,10 +205,17 @@ func (s *Store) GetRun(ctx context.Context, id int64) (Run, error) {
 
 func scanRun(row pgx.CollectableRow) (Run, error) {
 	var r Run
+	var counts []byte
 	err := row.Scan(&r.ID, &r.Namespace, &r.UpdateName, &r.UID, &r.StackName, &r.Type,
 		&r.Commit, &r.CommitSource, &r.State, &r.Message, &r.StartedAt, &r.EndedAt,
-		&r.ObservedAt)
-	return r, err
+		&r.ObservedAt, &counts)
+	if err != nil || counts == nil {
+		return r, err
+	}
+	if err := json.Unmarshal(counts, &r.Changes); err != nil {
+		return r, fmt.Errorf("decode run changes: %w", err)
+	}
+	return r, nil
 }
 
 func scanStackSummary(row pgx.CollectableRow) (StackSummary, error) {

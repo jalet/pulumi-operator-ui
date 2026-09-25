@@ -165,3 +165,38 @@ func TestSuccessRate(t *testing.T) {
 		}
 	}
 }
+
+func TestChangeChips(t *testing.T) {
+	got := changeChips(map[string]int64{"same": 5, "delete": 1, "create": 2, "read": 3, "replace": 0})
+	want := []changeChip{{"created", 2, "ok"}, {"deleted", 1, "bad"}, {"unchanged", 5, "mute"},
+		{"read", 3, "mute"}}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("(-want +got):\n%s", diff)
+	}
+	if changeChips(nil) != nil {
+		t.Error("nil counts should give no chips")
+	}
+}
+
+func TestChangeSummary(t *testing.T) {
+	tests := []struct {
+		give map[string]int64
+		want string
+	}{
+		{map[string]int64{"create": 2, "delete": 1, "same": 9}, "+2 -1"},
+		{map[string]int64{"update": 1, "replace": 3}, "~1 ±3"},
+		{map[string]int64{"same": 4}, "no changes"},
+		{nil, ""},
+	}
+	for _, tt := range tests {
+		if got := changeSummary(tt.give); got != tt.want {
+			t.Errorf("changeSummary(%v) = %q, want %q", tt.give, got, tt.want)
+		}
+	}
+}
+
+func TestImported(t *testing.T) {
+	if !imported("s3:prod-1") || imported("prod-1a0d") {
+		t.Fatal("imported() misclassifies update names")
+	}
+}

@@ -216,3 +216,62 @@ func typeChips(base string, ts []store.RunType, st store.StackStats) []chip {
 	}
 	return chips
 }
+
+// changeChip is one change count on the run page.
+type changeChip struct {
+	Label string
+	Count int64
+	Tone  string
+}
+
+// _changeOps is the display order, label, tone and summary symbol of the usual operations.
+var _changeOps = []struct{ op, label, tone, symbol string }{
+	{"create", "created", "ok", "+"},
+	{"update", "updated", "run", "~"},
+	{"delete", "deleted", "bad", "-"},
+	{"replace", "replaced", "att", "±"},
+	{"same", "unchanged", "mute", ""},
+}
+
+// changeChips lists non-zero counts: the usual operations first, then any others by name.
+func changeChips(counts map[string]int64) []changeChip {
+	var out []changeChip
+	known := map[string]bool{}
+	for _, o := range _changeOps {
+		known[o.op] = true
+		if n := counts[o.op]; n > 0 {
+			out = append(out, changeChip{Label: o.label, Count: n, Tone: o.tone})
+		}
+	}
+	var others []string
+	for op, n := range counts {
+		if !known[op] && n > 0 {
+			others = append(others, op)
+		}
+	}
+	slices.Sort(others)
+	for _, op := range others {
+		out = append(out, changeChip{Label: op, Count: counts[op], Tone: "mute"})
+	}
+	return out
+}
+
+// changeSummary is the timeline's compact form, for example "+2 -1"; "" when unknown.
+func changeSummary(counts map[string]int64) string {
+	if counts == nil {
+		return ""
+	}
+	var parts []string
+	for _, o := range _changeOps {
+		if n := counts[o.op]; n > 0 && o.symbol != "" {
+			parts = append(parts, fmt.Sprintf("%s%d", o.symbol, n))
+		}
+	}
+	if len(parts) == 0 {
+		return "no changes"
+	}
+	return strings.Join(parts, " ")
+}
+
+// imported reports whether a run was created from S3 history rather than seen as an Update.
+func imported(updateName string) bool { return strings.HasPrefix(updateName, "s3:") }

@@ -13,11 +13,12 @@
     <div><dt class="text-muted">Success</dt><dd class="mt-1 text-base font-bold">{{successRate .Stats}}</dd></div>
   </dl>
 </section>
+{{with .Stack.S3Error}}<p class="panel mb-4 px-4 py-2 text-sm text-muted" role="status">Pulumi history unavailable: {{.}}</p>{{end}}
 <nav class="mb-3 flex flex-wrap gap-2" aria-label="Run types">{{range .Chips}}{{template "chip" .}}{{end}}</nav>
 <div class="panel overflow-x-auto">
 <table class="w-full text-sm">
 <thead><tr class="border-b border-line text-left text-[11px] uppercase tracking-wider text-muted">
-<th class="px-3 py-2 font-semibold">Run</th><th class="px-3 py-2 font-semibold">Type</th><th class="px-3 py-2 font-semibold">State</th><th class="px-3 py-2 font-semibold">Commit</th><th class="px-3 py-2 font-semibold">Started</th><th class="px-3 py-2 font-semibold">Duration</th>
+<th class="px-3 py-2 font-semibold">Run</th><th class="px-3 py-2 font-semibold">Type</th><th class="px-3 py-2 font-semibold">State</th><th class="px-3 py-2 font-semibold">Commit</th><th class="px-3 py-2 font-semibold">Started</th><th class="px-3 py-2 font-semibold">Duration</th><th class="px-3 py-2 font-semibold">Changes</th>
 </tr></thead>
 {{template "run-rows" .}}
 </table>
@@ -26,7 +27,7 @@
 {{end}}
 
 {{define "run-rows"}}<tbody{{if .Live}} hx-get="/fragments/stacks/{{.Stack.Namespace}}/{{.Stack.Name}}/runs{{if .Query}}?types={{.Query}}{{end}}" hx-trigger="sse:{{stackEvent .Stack.Namespace .Stack.Name}}, sse:resync" hx-swap="outerHTML"{{end}}>
-{{range .Runs}}{{template "run-row" .}}{{else}}<tr><td colspan="6" class="px-3 py-8 text-center text-muted">No runs of the selected types.{{if $.AddPreviews}} <a class="text-ink underline" href="{{$.AddPreviews}}">Show previews</a>{{end}}</td></tr>{{end}}
+{{range .Runs}}{{template "run-row" .}}{{else}}<tr><td colspan="7" class="px-3 py-8 text-center text-muted">No runs of the selected types.{{if $.AddPreviews}} <a class="text-ink underline" href="{{$.AddPreviews}}">Show previews</a>{{end}}</td></tr>{{end}}
 </tbody>{{end}}
 
 {{define "run-row"}}<tr id="run-{{.ID}}" class="border-b border-line last:border-0" hx-get="/fragments/runs/{{.ID}}/row" hx-trigger="sse:run-{{.ID}}" hx-swap="outerHTML">
@@ -36,4 +37,5 @@
   <td class="px-3 py-2.5">{{template "commit" .}}</td>
   <td class="px-3 py-2.5 whitespace-nowrap">{{if .StartedAt}}<time datetime="{{iso .StartedAt}}">{{age .StartedAt}}</time>{{else}}<span class="text-muted">not started</span>{{end}}</td>
   <td class="px-3 py-2.5">{{duration .StartedAt .EndedAt}}</td>
+  <td class="px-3 py-2.5 font-mono text-xs whitespace-nowrap">{{changeSummary .Changes}}</td>
 </tr>{{end}}

@@ -47,15 +47,18 @@ func parsePages(now func() time.Time) map[string]*template.Template {
 			}
 			return u
 		},
-		"age":         func(t any) string { return age(now(), t) },
-		"iso":         func(t any) string { return timeOf(t).UTC().Format(time.RFC3339) },
-		"shortCommit": shortCommit,
-		"health":      health,
-		"stateBadge":  stateBadge,
-		"successRate": successRate,
-		"duration":    duration,
-		"stackEvent":  events.StackEventName,
-		"cursor":      formatCursor,
+		"age":           func(t any) string { return age(now(), t) },
+		"iso":           func(t any) string { return timeOf(t).UTC().Format(time.RFC3339) },
+		"shortCommit":   shortCommit,
+		"health":        health,
+		"stateBadge":    stateBadge,
+		"successRate":   successRate,
+		"changeChips":   changeChips,
+		"changeSummary": changeSummary,
+		"imported":      imported,
+		"duration":      duration,
+		"stackEvent":    events.StackEventName,
+		"cursor":        formatCursor,
 		// user is replaced per request in render; the default renders no name.
 		"user": func() string { return "" },
 	}

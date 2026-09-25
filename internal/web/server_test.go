@@ -593,3 +593,54 @@ func TestHeaderShowsSignedInUser(t *testing.T) {
 		t.Error("header lacks the email fallback")
 	}
 }
+
+func TestRunPageShowsChanges(t *testing.T) {
+	r := sampleReader()
+	r.runs[0].Changes = map[string]int64{"create": 2, "same": 5}
+	srv := newServer(t, r, nil)
+	_, body := get(t, srv, "/runs/7")
+	for _, want := range []string{"2 created", "5 unchanged", "from Pulumi history"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("run page lacks %q", want)
+		}
+	}
+	if strings.Contains(body, "appear here with log capture") {
+		t.Error("placeholder shown despite changes")
+	}
+}
+
+func TestRunPageImportedBadge(t *testing.T) {
+	r := sampleReader()
+	r.runs[0].UpdateName = "s3:prod-179"
+	srv := newServer(t, r, nil)
+	if _, body := get(t, srv, "/runs/7"); !strings.Contains(body, "imported from Pulumi history") {
+		t.Error("imported run has no badge")
+	}
+	if _, body := get(t, newServer(t, sampleReader(), nil), "/runs/7"); strings.Contains(body, "imported from Pulumi history") {
+		t.Error("operator run shows the imported badge")
+	}
+}
+
+func TestTimelineChangesColumn(t *testing.T) {
+	r := sampleReader()
+	r.runs[0].Changes = map[string]int64{"create": 2}
+	srv := newServer(t, r, nil)
+	_, body := get(t, srv, "/stacks/ns/app")
+	// html/template escapes "+" in text as &#43;; browsers show "+2" either way.
+	if !strings.Contains(body, ">Changes<") ||
+		(!strings.Contains(body, ">+2<") && !strings.Contains(body, ">&#43;2<")) {
+		t.Errorf("timeline lacks the Changes column:\n%s", body)
+	}
+}
+
+func TestStackS3Notice(t *testing.T) {
+	r := sampleReader()
+	r.stacks[0].S3Error = "access denied"
+	srv := newServer(t, r, nil)
+	if _, body := get(t, srv, "/stacks/ns/app"); !strings.Contains(body, "Pulumi history unavailable: access denied") {
+		t.Error("no S3 notice")
+	}
+	if _, body := get(t, newServer(t, sampleReader(), nil), "/stacks/ns/app"); strings.Contains(body, "Pulumi history unavailable") {
+		t.Error("notice shown without an error")
+	}
+}

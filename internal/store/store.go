@@ -93,6 +93,7 @@ type Run struct {
 	StartedAt    *time.Time
 	EndedAt      *time.Time
 	ObservedAt   time.Time
+	Changes      map[string]int64 // change counts from S3 history; nil when unknown
 }
 
 // Publisher receives a notification after each committed change.
