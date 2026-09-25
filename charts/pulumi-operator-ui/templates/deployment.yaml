@@ -28,6 +28,10 @@ spec:
       automountServiceAccountToken: true
       securityContext:
         runAsNonRoot: true
+        # The distroless nonroot user; fsGroup makes mounted secrets group-readable by it.
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -112,7 +116,7 @@ spec:
       volumes:
         - name: secrets
           projected:
-            defaultMode: 0400
+            defaultMode: 0440 # owner root, group 65532 via fsGroup; no world access
             sources:
               - secret:
                   name: {{ $v.oidc.clientSecret.name }}

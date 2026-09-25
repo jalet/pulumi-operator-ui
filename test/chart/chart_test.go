@@ -368,3 +368,27 @@ func TestServiceMonitorOptional(t *testing.T) {
 		t.Errorf("endpoints = %v", eps)
 	}
 }
+
+// The image runs as the distroless nonroot user (65532); mounted secret files must be
+// readable by it, and by nobody else.
+func TestSecretFilesReadableByNonRootUser(t *testing.T) {
+	objs := render(t)
+	pod, _, _ := unstructured.NestedMap(one(t, objs, "Deployment").Object, "spec", "template", "spec")
+	for _, field := range []string{"runAsUser", "runAsGroup", "fsGroup"} {
+		if v, _, _ := unstructured.NestedInt64(pod, "securityContext", field); v != 65532 {
+			t.Errorf("securityContext.%s = %d, want 65532", field, v)
+		}
+	}
+	vols, _, _ := unstructured.NestedSlice(pod, "volumes")
+	for _, v := range vols {
+		vm, _ := v.(map[string]any)
+		if vm["name"] != "secrets" {
+			continue
+		}
+		if mode, _, _ := unstructured.NestedInt64(vm, "projected", "defaultMode"); mode != 0o440 {
+			t.Errorf("secrets defaultMode = %#o, want 0440", mode)
+		}
+		return
+	}
+	t.Fatal("no secrets volume")
+}
