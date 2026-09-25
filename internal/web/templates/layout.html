@@ -10,6 +10,7 @@
 <script src="/static/sse.js" defer></script>
 </head>
 <body hx-ext="sse" sse-connect="/events">
+<div hidden hx-get="/fragments/session" hx-trigger="sse:session-expired" hx-swap="none"></div>
 <header class="top">
   <a class="brand" href="/">Pulumi stacks</a>
   <form method="post" action="/auth/logout"><button type="submit">Sign out</button></form>

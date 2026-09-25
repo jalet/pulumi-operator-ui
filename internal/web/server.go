@@ -93,6 +93,11 @@ func New(d Deps) http.Handler {
 	protected("GET /fragments/runs/{id}/row", s.runRow)
 	protected("GET /fragments/runs/{id}/header", s.runHeader)
 	protected("GET /events", s.events)
+	// A cheap authenticated probe: the layout fetches it on "session-expired", and an
+	// expired session answers 401 with HX-Redirect to the login.
+	protected("GET /fragments/session", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
 	return securityHeaders(mux)
 }
 

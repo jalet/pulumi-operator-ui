@@ -128,6 +128,9 @@ func TestSSEClosesAtSessionExpiry(t *testing.T) {
 	srv, _ := newSSEServer(t, time.Hour, 100*time.Millisecond)
 	s := openStream(t, srv)
 	s.next(t, time.Second) // resync
+	if line, _ := s.next(t, 2*time.Second); line != "event: session-expired" {
+		t.Fatalf("line = %q, want session-expired before close", line)
+	}
 	if line, ok := s.next(t, 2*time.Second); ok {
 		t.Fatalf("stream still open, got %q", line)
 	}
@@ -181,5 +184,31 @@ func TestEventsRequiresAuth(t *testing.T) {
 	srv := newServer(t, sampleReader(), deny)
 	if resp, _ := get(t, srv, "/events"); resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status = %d", resp.StatusCode)
+	}
+}
+
+func TestSessionFragment(t *testing.T) {
+	srv, _ := newSSEServer(t, time.Hour, time.Hour)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/fragments/session", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", resp.StatusCode)
+	}
+}
+
+func TestLayoutHandlesSessionExpiry(t *testing.T) {
+	srv := newServer(t, sampleReader(), nil)
+	_, body := get(t, srv, "/")
+	for _, want := range []string{`hx-get="/fragments/session"`, `hx-trigger="sse:session-expired"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("layout lacks %s", want)
+		}
 	}
 }

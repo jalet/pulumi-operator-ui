@@ -31,7 +31,8 @@ func registerMetrics() {
 }
 
 // events streams change notifications as SSE. The stream is bounded: it ends when the
-// session expires, the client leaves, or the broker drops it as slow. Browsers reconnect
+// session expires (announced as "session-expired" so the page can send the user to the
+// login), the client leaves, or the broker drops it as slow. Browsers reconnect
 // on their own and get "resync" first, so a dropped stream only costs one refetch.
 func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	sess, ok := auth.SessionFrom(r.Context())
@@ -68,6 +69,9 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-ctx.Done():
+			if r.Context().Err() == nil { // the session ended, not the client
+				sseSend(w, rc, "event: session-expired\ndata:\n\n")
+			}
 			return
 		case e, open := <-ch:
 			if !open {
