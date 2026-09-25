@@ -37,7 +37,7 @@ ON CONFLICT (namespace, update_name) DO UPDATE SET
                          ELSE runs.message END,
     started_at    = COALESCE(runs.started_at, EXCLUDED.started_at),
     ended_at      = COALESCE(runs.ended_at, EXCLUDED.ended_at),
-    observed_at   = EXCLUDED.observed_at,
+    observed_at   = LEAST(runs.observed_at, EXCLUDED.observed_at),
     log_status    = CASE WHEN runs.log_status = '' THEN EXCLUDED.log_status
                          ELSE runs.log_status END
 RETURNING id`
@@ -71,7 +71,8 @@ RETURNING id`
 
 // UpsertRun records a run seen through its Update. It is idempotent and converges:
 // terminal states never regress, the first non-empty commit wins unless the new one comes
-// from the Update itself, and the first observed start and end times are kept.
+// from the Update itself, and the first observed start and end times are kept, as is the
+// earliest observed_at, which orders runs that have no start time.
 func (s *Store) UpsertRun(ctx context.Context, r Run) error {
 	assertRun(r)
 	var id int64

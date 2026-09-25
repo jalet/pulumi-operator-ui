@@ -196,7 +196,7 @@ func RunFromUpdate(obj *unstructured.Unstructured, commit string, source store.C
 		Message:    truncate(u.Status.Message, messageBytesMax),
 		StartedAt:  timePtr(u.Status.StartTime),
 		EndedAt:    timePtr(u.Status.EndTime),
-		ObservedAt: now,
+		ObservedAt: observedAt(obj, now),
 	}
 	if commit != "" {
 		r.Commit, r.CommitSource = commit, source
@@ -275,4 +275,15 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return strings.ToValidUTF8(s[:n], "")
+}
+
+// observedAt is when the run appeared: the Update's creation, which never changes, so a run
+// without a start time keeps its place in the timeline across restarts. A missing or future
+// creation time (clock skew) falls back to now.
+func observedAt(obj *unstructured.Unstructured, now time.Time) time.Time {
+	created := obj.GetCreationTimestamp()
+	if created.IsZero() || created.After(now) {
+		return now
+	}
+	return created.UTC()
 }

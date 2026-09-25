@@ -329,3 +329,17 @@ func TestHistoryCommitSourceAllowed(t *testing.T) {
 		t.Fatalf("commit source = %q", got.CommitSource)
 	}
 }
+
+// Re-recording a run (every restart re-lists existing Updates) must not move it in the
+// timeline: the earliest observation is kept.
+func TestUpsertRunKeepsEarliestObservedAt(t *testing.T) {
+	s, _ := newTestStore(t)
+	r := run("ns", "u1", RunStateFailed)
+	r.ObservedAt = _t0
+	mustUpsert(t, s, r)
+	r.ObservedAt = _t0.Add(4 * time.Hour)
+	mustUpsert(t, s, r)
+	if got := getRunByName(t, s, "ns", "u1").ObservedAt; !got.Equal(_t0) {
+		t.Fatalf("observed_at = %v, want %v", got, _t0)
+	}
+}

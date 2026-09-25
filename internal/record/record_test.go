@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/go-cmp/cmp"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/jalet/pulumi-operator-ui/internal/store"
@@ -277,5 +278,29 @@ func TestRunFromUpdateExactCommit(t *testing.T) {
 	}
 	if got.Commit != "ccc" || got.CommitSource != store.CommitSourceUpdate {
 		t.Fatalf("commit = %q/%q", got.Commit, got.CommitSource)
+	}
+}
+
+// A run's sort position falls back to ObservedAt when it has no start time, so it must be a
+// stable time: the Update's creation, not when this process happened to see it.
+func TestRunFromUpdateObservedAtIsCreation(t *testing.T) {
+	obj := load(t, "update-failed")
+	created := _now.Add(-3 * time.Hour)
+	obj.SetCreationTimestamp(metav1.NewTime(created))
+	got, err := RunFromUpdate(obj, "", "", _now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.ObservedAt.Equal(created) {
+		t.Errorf("ObservedAt = %v, want the creation time %v", got.ObservedAt, created)
+	}
+
+	obj.SetCreationTimestamp(metav1.NewTime(_now.Add(time.Minute))) // clock skew
+	got, err = RunFromUpdate(obj, "", "", _now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.ObservedAt.Equal(_now) {
+		t.Errorf("ObservedAt = %v, want now for a future creation time", got.ObservedAt)
 	}
 }
