@@ -43,13 +43,17 @@ type Deps struct {
 	AuthRoutes  func(*http.ServeMux)
 	Log         zerolog.Logger
 	Now         func() time.Time
+
+	// heartbeat overrides the SSE heartbeat interval; zero means the default. Tests only.
+	heartbeat time.Duration
 }
 
 type server struct {
-	store  Reader
-	broker *events.Broker
-	log    zerolog.Logger
-	pages  map[string]*template.Template
+	store     Reader
+	broker    *events.Broker
+	heartbeat time.Duration
+	log       zerolog.Logger
+	pages     map[string]*template.Template
 }
 
 type stackPage struct {
@@ -65,7 +69,12 @@ func New(d Deps) http.Handler {
 		d.Now == nil {
 		panic("invariant violated: web.Deps is incomplete")
 	}
-	s := &server{store: d.Store, broker: d.Broker, log: d.Log, pages: parsePages(d.Now)}
+	s := &server{store: d.Store, broker: d.Broker, log: d.Log, pages: parsePages(d.Now),
+		heartbeat: d.heartbeat}
+	if s.heartbeat == 0 {
+		s.heartbeat = sseHeartbeatIntervalDefault
+	}
+	registerMetrics()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -83,6 +92,7 @@ func New(d Deps) http.Handler {
 	protected("GET /runs/{id}", s.runPage)
 	protected("GET /fragments/runs/{id}/row", s.runRow)
 	protected("GET /fragments/runs/{id}/header", s.runHeader)
+	protected("GET /events", s.events)
 	return securityHeaders(mux)
 }
 
