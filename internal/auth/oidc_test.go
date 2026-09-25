@@ -394,3 +394,30 @@ func mustHost(t *testing.T, raw string) string {
 	}
 	return u.Host
 }
+
+// OIDC Core 1.0 section 5.3.2: the userinfo sub must equal the ID token sub, or the userinfo
+// response must not be used. Here only userinfo carries the allowed group.
+func TestUserInfoSubjectMismatch(t *testing.T) {
+	a := newApp(t, nil, map[string]any{"sub": "someone-else", "groups": []any{"Pulumi Viewers"}})
+	resp, body := a.get(t, a.client, "/")
+	if resp.StatusCode == http.StatusOK || strings.HasPrefix(body, "ok ") {
+		t.Fatalf("signed in with a mismatched userinfo subject: %d %q", resp.StatusCode, body)
+	}
+	assertErrorEvent(t, a, "userinfo subject")
+}
+
+// An expired session noticed by an htmx fragment request must return the user to the page
+// they were on, never to the fragment URL, which renders as a bare snippet.
+func TestHtmxLoginReturnsToPage(t *testing.T) {
+	a := newApp(t, _viewer, nil)
+	nr := a.noRedirect()
+	resp, _ := a.get(t, nr, "/fragments/runs/7/header", "HX-Request", "true",
+		"HX-Current-URL", a.srv.URL+"/runs/7?x=1")
+	if got := resp.Header.Get("HX-Redirect"); got != "/auth/login?return=%2Fruns%2F7%3Fx%3D1" {
+		t.Errorf("with HX-Current-URL: HX-Redirect = %q", got)
+	}
+	resp, _ = a.get(t, nr, "/fragments/runs/7/header", "HX-Request", "true")
+	if got := resp.Header.Get("HX-Redirect"); got != "/auth/login?return=%2F" {
+		t.Errorf("fragment without HX-Current-URL: HX-Redirect = %q", got)
+	}
+}

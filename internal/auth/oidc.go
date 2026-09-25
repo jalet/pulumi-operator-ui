@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -128,7 +129,7 @@ func (a *Authenticator) Require(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(WithSession(r.Context(), s)))
 			return
 		}
-		loginURL := "/auth/login?return=" + url.QueryEscape(r.URL.RequestURI())
+		loginURL := "/auth/login?return=" + url.QueryEscape(returnTarget(r))
 		switch {
 		case r.Header.Get("HX-Request") == "true":
 			w.Header().Set("HX-Redirect", loginURL)
@@ -139,6 +140,21 @@ func (a *Authenticator) Require(next http.Handler) http.Handler {
 			http.Redirect(w, r, loginURL, http.StatusSeeOther)
 		}
 	})
+}
+
+// returnTarget is where the login sends the user back to. An htmx request is for a fragment,
+// so it uses the page htmx reports in HX-Current-URL (path and query only; safeReturn checks
+// it at login), and a fragment path without that header falls back to "/".
+func returnTarget(r *http.Request) string {
+	if r.Header.Get("HX-Request") == "true" {
+		if u, err := url.Parse(r.Header.Get("HX-Current-URL")); err == nil && u.Path != "" {
+			return (&url.URL{Path: u.Path, RawQuery: u.RawQuery}).RequestURI()
+		}
+	}
+	if strings.HasPrefix(r.URL.Path, "/fragments/") {
+		return "/"
+	}
+	return r.URL.RequestURI()
 }
 
 // WithSession returns ctx carrying s. Require uses it; tests and middleware may too.
@@ -240,23 +256,31 @@ func (a *Authenticator) exchange(ctx context.Context, code string, f flowState) 
 	id.email, _ = claims["email"].(string)
 	id.name, _ = claims["name"].(string)
 	if len(id.values) == 0 {
-		id.values = a.userInfoValues(ctx, tok)
+		values, ferr := a.userInfoValues(ctx, tok, idt.Subject)
+		if ferr != nil {
+			return identity{}, ferr
+		}
+		id.values = values
 	}
 	return id, nil
 }
 
-func (a *Authenticator) userInfoValues(ctx context.Context, tok *oauth2.Token) []string {
+// userInfoValues reads the allowlist claim from userinfo. A userinfo failure is an error,
+// not a denial, and a response for another subject is rejected (OIDC Core 1.0 5.3.2).
+func (a *Authenticator) userInfoValues(ctx context.Context, tok *oauth2.Token,
+	subject string) ([]string, *flowError) {
 	ui, err := a.provider.UserInfo(ctx, oauth2.StaticTokenSource(tok))
 	if err != nil {
-		a.log.Warn().Err(err).Msg("auth: userinfo")
-		return nil
+		return nil, &flowError{detail: "userinfo failed", status: http.StatusBadGateway}
+	}
+	if subtle.ConstantTimeCompare([]byte(ui.Subject), []byte(subject)) != 1 {
+		return nil, &flowError{detail: "userinfo subject mismatch", status: http.StatusBadGateway}
 	}
 	var claims map[string]any
 	if err := ui.Claims(&claims); err != nil {
-		a.log.Warn().Err(err).Msg("auth: userinfo claims")
-		return nil
+		return nil, &flowError{detail: "userinfo claims", status: http.StatusBadGateway}
 	}
-	return ClaimValues(claims, a.cfg.Claim)
+	return ClaimValues(claims, a.cfg.Claim), nil
 }
 
 func (a *Authenticator) logout(w http.ResponseWriter, r *http.Request) {
