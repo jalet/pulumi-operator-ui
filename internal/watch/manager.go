@@ -37,6 +37,7 @@ type Writer interface {
 	MarkStackDeleted(ctx context.Context, namespace, name string, at time.Time) error
 	UpsertRun(ctx context.Context, r store.Run) error
 	BackfillRun(ctx context.Context, r store.Run) error
+	SweepStacks(ctx context.Context, present []store.StackKey, cutoff, at time.Time) (int64, error)
 }
 
 // Options configures NewManager.
@@ -88,7 +89,38 @@ func NewManager(cfg *rest.Config, o Options) (manager.Manager, error) {
 		For(newObject(record.UpdateGVK)).Complete(updates); err != nil {
 		return nil, fmt.Errorf("update controller: %w", err)
 	}
+	// Stacks deleted while the app was down produce no event after a restart; sweep them
+	// once the cache has listed what exists.
+	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		sweepDeleted(ctx, mgr.GetCache(), o.Writer, o.Now)
+		return nil
+	})); err != nil {
+		return nil, fmt.Errorf("add stack sweep: %w", err)
+	}
 	return mgr, nil
+}
+
+// sweepDeleted soft-deletes recorded stacks the watch cannot see. It runs once per start;
+// failures are logged, because a missed sweep only leaves stale rows until the next start.
+func sweepDeleted(ctx context.Context, c cache.Cache, w Writer, now func() time.Time) {
+	log := ctrl.LoggerFrom(ctx).WithName("sweep")
+	cutoff := now() // before listing, so rows a racing reconcile writes are kept
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(record.StackGVK.GroupVersion().WithKind("StackList"))
+	if err := c.List(ctx, list); err != nil {
+		log.Error(err, "list stacks")
+		return
+	}
+	present := make([]store.StackKey, 0, len(list.Items))
+	for _, item := range list.Items {
+		present = append(present, store.StackKey{Namespace: item.GetNamespace(), Name: item.GetName()})
+	}
+	n, err := w.SweepStacks(ctx, present, cutoff, now())
+	if err != nil {
+		log.Error(err, "sweep stacks")
+		return
+	}
+	log.Info("swept stacks not found in the cluster", "count", n, "present", len(present))
 }
 
 func newObject(gvk schema.GroupVersionKind) *unstructured.Unstructured {

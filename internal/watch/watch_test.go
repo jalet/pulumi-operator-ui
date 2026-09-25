@@ -108,6 +108,25 @@ func (w *memWriter) BackfillRun(_ context.Context, r store.Run) error {
 	return nil
 }
 
+func (w *memWriter) SweepStacks(_ context.Context, present []store.StackKey, cutoff,
+	_ time.Time) (int64, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	keep := map[string]bool{}
+	for _, k := range present {
+		keep[k.Namespace+"/"+k.Name] = true
+	}
+	var n int64
+	for key, st := range w.stacks {
+		if !keep[key] && st.UpdatedAt.Before(cutoff) {
+			delete(w.stacks, key)
+			w.deleted[key]++
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (w *memWriter) stack(key string) (store.Stack, bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -131,7 +150,11 @@ func (w *memWriter) deletions(key string) int {
 // startManager runs a manager until the test ends.
 func startManager(t *testing.T, namespaces ...string) *memWriter {
 	t.Helper()
-	w := newMemWriter()
+	return startManagerWith(t, newMemWriter(), namespaces...)
+}
+
+func startManagerWith(t *testing.T, w *memWriter, namespaces ...string) *memWriter {
+	t.Helper()
 	mgr, err := NewManager(_cfg, Options{Namespaces: namespaces, MetricsAddr: "0", Writer: w,
 		Now: time.Now, skipNameValidation: true})
 	if err != nil {
@@ -336,4 +359,18 @@ func TestRunCompletedWhileUpdateGone(t *testing.T) {
 		r, ok := w.run(ns + "/app-u1")
 		return ok && r.State == store.RunStateFailed && r.Message == "boom"
 	})
+}
+
+func TestStackDeletedWhileDownIsSwept(t *testing.T) {
+	ns := newNamespace(t, "sweep")
+	w := newMemWriter()
+	w.stacks[ns+"/ghost"] = store.Stack{Namespace: ns, Name: "ghost",
+		UpdatedAt: time.Now().Add(-time.Hour)}
+	createStack(t, ns, nil)
+	startManagerWith(t, w)
+	eventually(t, "ghost swept", func() bool { return w.deletions(ns+"/ghost") > 0 })
+	eventually(t, "live stack kept", func() bool { _, ok := w.stack(ns + "/app"); return ok })
+	if w.deletions(ns+"/app") != 0 {
+		t.Fatal("live stack was swept")
+	}
 }

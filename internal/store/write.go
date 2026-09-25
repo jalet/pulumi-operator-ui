@@ -160,3 +160,36 @@ func assertRun(r Run) {
 	assert(r.StackName != "", "run stack")
 	assert(r.Type != "" && r.State != "", "run enums")
 }
+
+// StackKey identifies a stack.
+type StackKey struct {
+	Namespace string
+	Name      string
+}
+
+// SweepStacks soft-deletes active stacks that are absent from present, the full set of
+// Stacks the watch can currently see. Only rows last written before cutoff are touched,
+// so a stack upserted by a reconcile racing the sweep is never swept. It returns the
+// number of stacks marked deleted.
+func (s *Store) SweepStacks(ctx context.Context, present []StackKey, cutoff, at time.Time) (
+	int64, error) {
+	namespaces := make([]string, len(present))
+	names := make([]string, len(present))
+	for i, k := range present {
+		namespaces[i], names[i] = k.Namespace, k.Name
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE stacks SET deleted_at = $1
+		WHERE deleted_at IS NULL AND updated_at < $2
+		  AND NOT EXISTS (
+		      SELECT 1 FROM unnest($3::text[], $4::text[]) AS p(namespace, name)
+		      WHERE p.namespace = stacks.namespace AND p.name = stacks.name)`,
+		at, cutoff, namespaces, names)
+	if err != nil {
+		return 0, fmt.Errorf("sweep stacks: %w", err)
+	}
+	if tag.RowsAffected() > 0 {
+		s.pub.Publish(events.Event{Kind: events.KindStackSet})
+	}
+	return tag.RowsAffected(), nil
+}

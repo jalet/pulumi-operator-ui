@@ -246,3 +246,35 @@ func TestBackfillKeepsExactCommit(t *testing.T) {
 		t.Fatalf("commit = %s, want exact", got.Commit)
 	}
 }
+
+func TestSweepStacks(t *testing.T) {
+	s, pub := newTestStore(t)
+	ctx := t.Context()
+	old := time.Now().Add(-time.Hour)
+	for _, name := range []string{"kept", "gone"} {
+		must(t, s.UpsertStack(ctx, Stack{Namespace: "ns", Name: name, UpdatedAt: old}))
+	}
+	must(t, s.UpsertStack(ctx, Stack{Namespace: "other", Name: "gone", UpdatedAt: old}))
+	cutoff := time.Now()
+	// Written after the sweep started (a concurrent reconcile): never swept.
+	must(t, s.UpsertStack(ctx, Stack{Namespace: "ns", Name: "fresh", UpdatedAt: time.Now()}))
+	pub.reset()
+
+	n, err := s.SweepStacks(ctx, []StackKey{{Namespace: "ns", Name: "kept"}}, cutoff, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("swept %d, want 2", n)
+	}
+	for key, wantDeleted := range map[[2]string]bool{
+		{"ns", "kept"}: false, {"ns", "gone"}: true, {"other", "gone"}: true, {"ns", "fresh"}: false,
+	} {
+		if got := getStackRow(t, s, key[0], key[1]).DeletedAt != nil; got != wantDeleted {
+			t.Errorf("%v deleted = %v, want %v", key, got, wantDeleted)
+		}
+	}
+	if diff := cmp.Diff([]events.Kind{events.KindStackSet}, pub.kinds()); diff != "" {
+		t.Errorf("events (-want +got):\n%s", diff)
+	}
+}
