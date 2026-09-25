@@ -119,7 +119,7 @@ func (c *Config) validate() error {
 		errs = append(errs, validateRedirectURL(c.OIDC.RedirectURL))
 	}
 	if c.DatabaseURL != "" {
-		errs = append(errs, validateDatabaseURL(c.DatabaseURL))
+		errs = append(errs, validateDatabaseURL(c.DatabaseURL, c.DatabaseCAFile != ""))
 	}
 	return errors.Join(errs...)
 }
@@ -135,16 +135,27 @@ func validateRedirectURL(raw string) error {
 	return errors.New("--oidc.redirect-url must be https (http only for localhost)")
 }
 
-// validateDatabaseURL never includes the URL in its errors: it may carry a password.
-func validateDatabaseURL(raw string) error {
+// validateDatabaseURL requires verified TLS off localhost: sslmode=verify-ca/verify-full,
+// or a CA file (the store then forces verification). The default "prefer", "allow" and
+// "require" do not verify the server, and "prefer"/"allow" fall back to plaintext.
+// Errors never include the URL: it may carry a password.
+func validateDatabaseURL(raw string, haveCA bool) error {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {
 		return errors.New("--database-url: invalid")
 	}
-	if u.Query().Get("sslmode") == "disable" && !isLocalhost(u.Hostname()) {
-		return errors.New("--database-url: sslmode=disable is only allowed for localhost")
+	if isLocalhost(u.Hostname()) {
+		return nil
 	}
-	return nil
+	switch mode := u.Query().Get("sslmode"); {
+	case mode == "disable":
+		return errors.New("--database-url: sslmode=disable is only allowed for localhost")
+	case mode == "verify-ca" || mode == "verify-full" || haveCA:
+		return nil
+	default:
+		return errors.New("--database-url: TLS must be verified; set sslmode=verify-full " +
+			"or --database.ca-file")
+	}
 }
 
 func isLocalhost(host string) bool {

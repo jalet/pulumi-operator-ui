@@ -21,10 +21,12 @@ import (
 	"github.com/jalet/pulumi-operator-ui/internal/events"
 )
 
+// The database may start after the app (CNPG failover, fresh install). 30 attempts with
+// backoff capped at 10s gives roughly four minutes before the pod restarts. A variable so
+// tests can fail fast.
+var connectAttemptsMax = 30
+
 const (
-	// The database may start after the app (CNPG failover, fresh install). 30 attempts
-	// with backoff capped at 10s gives roughly four minutes before the pod restarts.
-	connectAttemptsMax  = 30
 	connectBackoffFirst = 250 * time.Millisecond
 	connectBackoffCap   = 10 * time.Second
 	poolConnsMax        = 10
@@ -118,11 +120,9 @@ func Open(ctx context.Context, o Options) (*Store, error) {
 		return nil, errors.New("parse database url: invalid") // never echo the URL
 	}
 	if o.CAFile != "" {
-		tlsCfg, err := tlsConfig(o.CAFile, cfg.ConnConfig.Host)
-		if err != nil {
+		if err := requireVerifiedTLS(cfg, o.CAFile); err != nil {
 			return nil, err
 		}
-		cfg.ConnConfig.TLSConfig = tlsCfg
 	}
 	cfg.MaxConns = poolConnsMax
 	cfg.MaxConnLifetime = 30 * time.Minute
@@ -155,16 +155,33 @@ func (s *Store) Ping(ctx context.Context) error {
 	return nil
 }
 
-func tlsConfig(caFile, host string) (*tls.Config, error) {
+// requireVerifiedTLS makes every connection attempt use TLS verified against caFile.
+// pgx's default sslmode=prefer adds a plaintext fallback that is tried when TLS fails,
+// including on a verification error, so those fallbacks are dropped.
+func requireVerifiedTLS(cfg *pgxpool.Config, caFile string) error {
 	pem, err := os.ReadFile(caFile) //nolint:gosec // path is operator configuration, not user input
 	if err != nil {
-		return nil, fmt.Errorf("read database CA: %w", err)
+		return fmt.Errorf("read database CA: %w", err)
 	}
 	roots := x509.NewCertPool()
 	if !roots.AppendCertsFromPEM(pem) {
-		return nil, errors.New("read database CA: no certificates found")
+		return errors.New("read database CA: no certificates found")
 	}
-	return &tls.Config{RootCAs: roots, ServerName: host, MinVersion: tls.VersionTLS12}, nil
+	verified := func(host string) *tls.Config {
+		return &tls.Config{RootCAs: roots, ServerName: host, MinVersion: tls.VersionTLS12}
+	}
+	cc := cfg.ConnConfig
+	cc.TLSConfig = verified(cc.Host)
+	kept := cc.Fallbacks[:0]
+	for _, fb := range cc.Fallbacks {
+		if fb.TLSConfig == nil {
+			continue
+		}
+		fb.TLSConfig = verified(fb.Host)
+		kept = append(kept, fb)
+	}
+	cc.Fallbacks = kept
+	return nil
 }
 
 func waitForDatabase(ctx context.Context, pool *pgxpool.Pool, log zerolog.Logger) error {

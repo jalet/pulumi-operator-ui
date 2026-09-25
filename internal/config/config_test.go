@@ -20,7 +20,7 @@ var _base = []string{
 
 func testEnv(k string) string {
 	if k == "DATABASE_URL" {
-		return "postgres://pou@db:5432/pou"
+		return "postgres://pou@db:5432/pou?sslmode=verify-full"
 	}
 	return ""
 }
@@ -29,7 +29,7 @@ func defaults() Config {
 	return Config{
 		HTTPAddr:    ":8080",
 		MetricsAddr: ":9090",
-		DatabaseURL: "postgres://pou@db:5432/pou",
+		DatabaseURL: "postgres://pou@db:5432/pou?sslmode=verify-full",
 		OIDC: OIDC{
 			Issuer:           "https://idp.example",
 			ClientID:         "pou",
@@ -96,6 +96,34 @@ func TestParse(t *testing.T) {
 			name:     "sslmode disable off localhost",
 			giveArgs: with("--database-url=postgres://u@db/pou?sslmode=disable"),
 			wantErr:  "sslmode=disable is only allowed for localhost",
+		},
+		{
+			name:     "no sslmode off localhost",
+			giveArgs: with("--database-url=postgres://u@db/pou"),
+			wantErr:  "--database-url: TLS must be verified",
+		},
+		{
+			name:     "sslmode require off localhost",
+			giveArgs: with("--database-url=postgres://u@db/pou?sslmode=require"),
+			wantErr:  "--database-url: TLS must be verified",
+		},
+		{
+			name:     "sslmode prefer with CA file",
+			giveArgs: with("--database-url=postgres://u@db/pou", "--database.ca-file=/s/ca.crt"),
+			want: func(c *Config) {
+				c.DatabaseURL, c.DatabaseCAFile = "postgres://u@db/pou", "/s/ca.crt"
+			},
+		},
+		{
+			name:     "sslmode verify-ca off localhost",
+			giveArgs: with("--database-url=postgres://u@db/pou?sslmode=verify-ca"),
+			want:     func(c *Config) { c.DatabaseURL = "postgres://u@db/pou?sslmode=verify-ca" },
+		},
+		{
+			name: "sslmode disable with CA file off localhost",
+			giveArgs: with("--database-url=postgres://u@db/pou?sslmode=disable",
+				"--database.ca-file=/s/ca.crt"),
+			wantErr: "sslmode=disable is only allowed for localhost",
 		},
 		{
 			name:     "sslmode disable on localhost",

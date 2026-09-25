@@ -21,7 +21,8 @@ Required values:
 
 | Value | Meaning |
 |---|---|
-| `database.urlSecret.name` | Secret with the PostgreSQL URL under key `uri` (a CNPG app secret works as-is) |
+| `database.urlSecret.name` | Secret with the PostgreSQL URL under key `uri` (a CNPG app secret works, together with `database.caSecret`) |
+| `database.caSecret.name` | CA for the database's TLS certificate (for CNPG: `<cluster>-ca`, key `ca.crt`); required unless the URL has `sslmode=verify-full` |
 | `oidc.issuer`, `oidc.clientID`, `oidc.redirectURL` | OIDC client settings; the redirect URL ends in `/auth/callback` |
 | `oidc.clientSecret.name` | Secret with the client secret under key `client-secret` |
 | `auth.allowed` | Values of `auth.claim` (default `groups`) that may sign in |
@@ -29,8 +30,8 @@ Required values:
 | `networkPolicy.apiServer.cidrs` | API server endpoint CIDRs, or set `networkPolicy.enabled=false` |
 
 Also set `networkPolicy.gateway`, `networkPolicy.database` and
-`networkPolicy.metricsScraper` selectors for your cluster, plus
-`database.caSecret` to verify the database's TLS certificate. See
+`networkPolicy.metricsScraper` selectors for your cluster. Off localhost the app
+refuses unverified database TLS, so a plain `sslmode=prefer` URL fails at startup. See
 [the chart's values](charts/pulumi-operator-ui/values.yaml) for everything else.
 
 ## Security model

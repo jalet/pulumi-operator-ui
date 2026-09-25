@@ -9,11 +9,12 @@ image:
 namespaces: []
 
 database:
-  # Secret holding the PostgreSQL URL (required). A CNPG app secret works as-is.
+  # Secret holding the PostgreSQL URL (required). A CNPG app secret works with caSecret.
   urlSecret:
     name: ""
     key: uri
-  # Optional Secret with the database CA; enables TLS verification of the server.
+  # Secret with the database CA (for CNPG: <cluster>-ca). Required unless the URL has
+  # sslmode=verify-full: the app refuses unverified TLS to a non-localhost database.
   caSecret:
     name: ""
     key: ca.crt
