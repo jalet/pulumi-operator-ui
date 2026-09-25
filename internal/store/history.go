@@ -77,14 +77,19 @@ func (s *Store) HistoryCursor(ctx context.Context, bucket, prefix string) (strin
 
 // SetHistoryCursor records key as processed with count history keys listed up to it. The
 // cursor only moves forward, so a late or repeated call never re-reads or renumbers keys.
+// The exception is a countless cursor (key_count 0, written by a version that did not
+// count, for example during a rolling update): any counted write replaces it.
 func (s *Store) SetHistoryCursor(ctx context.Context, bucket, prefix, key string, count int64,
 	at time.Time) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO s3_cursors (bucket, prefix, last_key, key_count, updated_at)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (bucket, prefix) DO UPDATE SET
-		    last_key   = GREATEST(s3_cursors.last_key, EXCLUDED.last_key),
-		    key_count  = CASE WHEN EXCLUDED.last_key > s3_cursors.last_key
+		    last_key   = CASE WHEN s3_cursors.key_count = 0 AND EXCLUDED.key_count > 0
+		                      THEN EXCLUDED.last_key
+		                      ELSE GREATEST(s3_cursors.last_key, EXCLUDED.last_key) END,
+		    key_count  = CASE WHEN s3_cursors.key_count = 0 AND EXCLUDED.key_count > 0
+		                           OR EXCLUDED.last_key > s3_cursors.last_key
 		                      THEN EXCLUDED.key_count ELSE s3_cursors.key_count END,
 		    updated_at = EXCLUDED.updated_at`, bucket, prefix, key, count, at)
 	if err != nil {

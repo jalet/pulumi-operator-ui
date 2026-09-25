@@ -72,3 +72,20 @@ where it lives. Items fixed later are marked with the commit that fixed them.
   then migrates up.
 - The history upsert rewrites the row on every conflict (negligible: once per file on the
   re-read, then only on retries).
+
+## Timeline rail
+
+- Open preview folds collapse on every stack event, because the whole rail is swapped.
+- A running refresh shows the hollow dot instead of the pulsing one (class order in
+  `rail-node`).
+- `.rail-dot-run` animates without a `prefers-reduced-motion` rule.
+- The chart's S3 history comment in `values.yaml` now sits above `displayTimezone`.
+- The flag list in `docs/design.md` lacks `--display-timezone`.
+- Dead code: `Reader.ListRuns` in web, `StackStats.HiddenPreviews`, and `StateChangeTypes`
+  duplicating `DefaultRunTypes`.
+- The fold/expand toggle drops `before=`, returning to the first page.
+- Numbers filled on linked runs by the post-reset re-read appear only on reload.
+- List rows read `lc.resources` to build the resource summary, which makes timeline queries
+  heavier.
+- Test gaps: numbering after a mid-listing fetch error, the reset re-read filling `seq` on
+  linked runs, `key_count` across a prune, and the wording of `TestTickCountsTooOldKeys`.

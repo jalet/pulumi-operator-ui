@@ -1,8 +1,11 @@
 package store
 
 import (
+	"fmt"
 	"testing"
 	"time"
+
+	"github.com/jalet/pulumi-operator-ui/internal/events"
 )
 
 func TestSeqCopiedOntoImportedRun(t *testing.T) {
@@ -119,4 +122,62 @@ func names(rs []Run) []string {
 		out[i] = r.UpdateName
 	}
 	return out
+}
+
+// When one page's window holds more previews than the cap, the page ends at the oldest
+// preview it returned and the next page continues from there: none is lost.
+func TestTimelinePreviewCapPages(t *testing.T) {
+	defer func(n int) { previewsPageMax = n }(previewsPageMax)
+	previewsPageMax = 2
+	s, _ := newTestStore(t)
+	mustUpsert(t, s, timelineRun("up1", RunTypeUp, _t0))
+	for i := 1; i <= 5; i++ {
+		mustUpsert(t, s, timelineRun(fmt.Sprintf("pv%d", i), RunTypePreview, _t0.Add(time.Duration(i)*time.Minute)))
+	}
+	seen := map[string]int{}
+	var before *Cursor
+	for page := 0; page < 10; page++ {
+		c, p, next, err := s.ListTimeline(t.Context(), "ns", "s", before, 50)
+		must(t, err)
+		for _, r := range append(c, p...) {
+			seen[r.UpdateName]++
+		}
+		if next == nil {
+			break
+		}
+		before = next
+	}
+	for _, n := range []string{"up1", "pv1", "pv2", "pv3", "pv4", "pv5"} {
+		if seen[n] != 1 {
+			t.Errorf("%s seen %d times, want 1 (all: %v)", n, seen[n], seen)
+		}
+	}
+}
+
+func TestSaveLogPublishesStackEvent(t *testing.T) {
+	s, pub := newTestStore(t)
+	mustUpsert(t, s, finished("u1", _t0))
+	id := getRunByName(t, s, "ns", "u1").ID
+	pub.reset()
+	must(t, s.SaveLog(t.Context(), id, LogStatusCaptured, map[string]int64{"update": 1}, nil, false))
+	found := false
+	for _, k := range pub.kinds() {
+		found = found || k == events.KindStack
+	}
+	if !found {
+		t.Fatalf("events = %v, want a stack event so folded previews re-render", pub.kinds())
+	}
+}
+
+// A countless cursor (written by the previous version) is replaced by the first counted
+// write, even from behind it, so renumbering happens once rather than on every tick.
+func TestCountedCursorReplacesCountless(t *testing.T) {
+	s, _ := newTestStore(t)
+	must(t, s.SetHistoryCursor(t.Context(), "b", "p/", "p/k9", 0, _t0))
+	must(t, s.SetHistoryCursor(t.Context(), "b", "p/", "p/k3", 3, _t0))
+	key, n, err := s.HistoryCursor(t.Context(), "b", "p/")
+	must(t, err)
+	if key != "p/k3" || n != 3 {
+		t.Fatalf("cursor = %q %d, want p/k3 3", key, n)
+	}
 }

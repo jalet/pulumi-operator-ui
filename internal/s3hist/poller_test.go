@@ -131,9 +131,10 @@ func (f *fakeStore) SetHistoryCursor(_ context.Context, bucket, prefix, key stri
 	_ time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if key > f.cursors[bucket+"|"+prefix] {
-		f.cursors[bucket+"|"+prefix] = key
-		f.counts[bucket+"|"+prefix] = count
+	k := bucket + "|" + prefix
+	if key > f.cursors[k] || (f.counts[k] == 0 && count > 0) { // as SetHistoryCursor
+		f.cursors[k] = key
+		f.counts[k] = count
 	}
 	return nil
 }
@@ -220,6 +221,7 @@ func TestTickIngestsAndLinks(t *testing.T) {
 func TestTickUsesStartAfter(t *testing.T) {
 	st, fs := newFakeStore(_stack), newFakeS3()
 	st.cursors["b|"+_prefix] = _prefix + "dev-100.history.json"
+	st.counts["b|"+_prefix] = 100
 	newPoller(st, fs).tick(t.Context())
 	if len(fs.lists) == 0 {
 		t.Fatal("no list call")
@@ -495,5 +497,23 @@ func TestSeqStableAcrossReread(t *testing.T) {
 	last := st.inserted[len(st.inserted)-1]
 	if last.Key != _prefix+"dev-2.history.json" || last.Seq != 2 {
 		t.Fatalf("second tick inserted %+v, want dev-2 seq 2", last)
+	}
+}
+
+// A cursor written by the previous version during a rolling update has a history key but a
+// count of 0; resuming from it would number every later key from 1. It must renumber.
+func TestTickRenumbersCountlessCursor(t *testing.T) {
+	st, fs := newFakeStore(_stack), newFakeS3()
+	fs.put("b", _prefix+"dev-1.history.json", historyBody("update", 1790239700))
+	fs.put("b", _prefix+"dev-2.history.json", historyBody("update", 1790239800))
+	fs.put("b", _prefix+"dev-3.history.json", historyBody("update", 1790239900))
+	st.cursors["b|"+_prefix] = _prefix + "dev-2.history.json" // old pod's cursor, no count
+	newPoller(st, fs).tick(t.Context())
+	got := map[string]int64{}
+	for _, e := range st.inserted {
+		got[e.Key] = e.Seq
+	}
+	if got[_prefix+"dev-3.history.json"] != 3 || got[_prefix+"dev-1.history.json"] != 1 {
+		t.Fatalf("seq = %v, want every key renumbered from the start", got)
 	}
 }

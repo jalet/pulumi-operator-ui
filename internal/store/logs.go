@@ -81,5 +81,8 @@ func (s *Store) SaveLog(ctx context.Context, runID int64, status string,
 		return fmt.Errorf("save log %d: commit: %w", runID, err)
 	}
 	s.pub.Publish(events.Event{Kind: events.KindRun, Namespace: ns, Stack: stack, RunID: runID})
+	// Folded previews have no per-run fragment, so the stack's timeline must re-render for a
+	// capture that finds drift to show.
+	s.pub.Publish(events.Event{Kind: events.KindStack, Namespace: ns, Stack: stack})
 	return nil
 }

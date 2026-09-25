@@ -59,7 +59,8 @@ func buildRail(changes, previews []store.Run, now time.Time, loc *time.Location,
 			days = append(days, railDay{Label: label})
 		}
 		d := &days[len(days)-1]
-		foldable := r.Type == store.RunTypePreview && r.State != store.RunStateFailed && !drift(r)
+		foldable := r.Type == store.RunTypePreview && !drift(r) &&
+			(r.State == store.RunStateSucceeded) // failed, running and pending previews are nodes
 		if foldable && !expand {
 			if n := len(d.Items); n > 0 && d.Items[n-1].Fold != nil {
 				d.Items[n-1].Fold = append(d.Items[n-1].Fold, r)

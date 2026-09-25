@@ -216,6 +216,11 @@ func (p *Poller) pollTarget(ctx, s3ctx context.Context, client S3API, t Target,
 	if err != nil {
 		return &pollError{"db", err}
 	}
+	if count == 0 && strings.HasSuffix(cursor, ".history.json") {
+		// A history key with no count was written by a version that did not number keys
+		// (a rolling update or a rollback): list from the start so numbers stay right.
+		cursor = ""
+	}
 	// last and lastCount move together: the key processed last and how many history keys
 	// were listed up to it, which numbers each entry by its place among the prefix's keys.
 	last, lastCount := cursor, count

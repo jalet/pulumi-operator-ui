@@ -92,3 +92,12 @@ func TestRailExpandShowsEveryPreview(t *testing.T) {
 		t.Fatalf("(-want +got):\n%s", diff)
 	}
 }
+
+func TestRailRunningPreviewIsANode(t *testing.T) {
+	now := time.Date(2026, 9, 25, 18, 0, 0, 0, time.UTC)
+	running := railRun("p1", store.RunTypePreview, store.RunStateRunning, now.Add(-time.Minute))
+	got := shape(buildRail(nil, []store.Run{running}, now, time.UTC, false))
+	if diff := cmp.Diff([]string{"day:Today", "p1"}, got); diff != "" {
+		t.Fatalf("(-want +got):\n%s", diff)
+	}
+}
