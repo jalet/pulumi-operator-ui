@@ -20,10 +20,16 @@
 </div>
 <div class="panel mb-4 p-4">
   <h2 class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">Operator message</h2>
-  {{if .Message}}<pre class="whitespace-pre-wrap break-words rounded-md border border-line p-3 font-mono text-xs{{if eq .State "failed"}} message-failed{{end}}">{{.Message}}</pre>{{else}}<p class="text-sm text-muted">No message.</p>{{end}}
+  {{if .Message}}<pre class="whitespace-pre-wrap break-words rounded-md border border-line p-3 font-mono text-xs{{if eq .State "failed"}} message-failed{{end}}">{{operatorMessage .Message}}</pre>{{else}}<p class="text-sm text-muted">No message.</p>{{end}}
 </div>
 <div class="panel p-4">
   <h2 class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">Changes</h2>
-  {{with changeChips .Changes}}<div class="flex flex-wrap items-center gap-2">{{range .}}<span class="pill tone-{{.Tone}}">{{.Count}} {{.Label}}</span>{{end}}<span class="text-xs text-muted">from Pulumi history</span></div>{{else}}{{if .Changes}}<p class="text-sm text-muted">No changes, from Pulumi history.</p>{{else}}<p class="rounded-md border border-dashed border-line p-3 text-center text-xs text-muted">No resource changes recorded for this run.</p>{{end}}{{end}}
+  {{with changeChips .Counts}}<div class="flex flex-wrap items-center gap-2">{{range .}}<span class="pill tone-{{.Tone}}">{{.Count}} {{.Label}}</span>{{end}}<span class="text-xs text-muted">from {{$.CountSource}}</span></div>{{end}}
+  {{with .Rows}}<ul class="mt-3 divide-y divide-line rounded-md border border-line">{{range .}}
+    <li><details class="group"><summary class="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm"><span class="pill tone-{{.Tone}}">{{.Op}}</span><span class="font-mono text-xs text-muted" title="{{.Type}}">{{.ShortType}}</span><span class="font-mono text-xs">{{.Name}}</span></summary>
+      <pre class="overflow-x-auto border-t border-line px-3 py-2 font-mono text-xs">{{range .Lines}}<span{{with .Tone}} class="diff-{{.}}"{{end}}>{{.Text}}</span>
+{{end}}</pre>{{if .Truncated}}<p class="px-3 pb-2 text-xs text-muted">Diff truncated.</p>{{end}}</details></li>{{end}}
+  </ul>{{end}}
+  {{with .Note}}<p class="mt-2 rounded-md border border-dashed border-line p-3 text-center text-xs text-muted">{{.}}</p>{{end}}
 </div>
 </section>{{end}}

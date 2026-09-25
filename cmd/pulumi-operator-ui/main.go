@@ -100,8 +100,12 @@ func run(ctx context.Context, args []string, getenv func(string) string,
 	if err != nil {
 		return err
 	}
+	var s3Interval time.Duration
+	if cfg.S3HistoryEnabled {
+		s3Interval = cfg.S3HistoryInterval
+	}
 	handler := web.New(web.Deps{Store: st, Broker: broker, RequireAuth: authn.Require,
-		AuthRoutes: authn.Routes, Log: logger, Now: time.Now})
+		AuthRoutes: authn.Routes, Log: logger, Now: time.Now, S3Interval: s3Interval})
 	srv := newHTTPServer(cfg.HTTPAddr, handler)
 	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
 		return serveHTTP(ctx, srv)

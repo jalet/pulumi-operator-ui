@@ -217,3 +217,80 @@ func TestImported(t *testing.T) {
 		t.Fatal("imported() misclassifies update names")
 	}
 }
+
+func TestShortType(t *testing.T) {
+	for give, want := range map[string]string{
+		"aws:iam/userPolicy:UserPolicy":                    "iam/UserPolicy",
+		"vault:kubernetes/authBackendRole:AuthBackendRole": "kubernetes/AuthBackendRole",
+		"random:index/randomId:RandomId":                   "RandomId",
+		"custom:thing":                                     "custom:thing",
+	} {
+		if got := shortType(give); got != want {
+			t.Errorf("shortType(%q) = %q, want %q", give, got, want)
+		}
+	}
+}
+
+func TestOperatorMessage(t *testing.T) {
+	for give, want := range map[string]string{
+		`"New commit detected: \"2ea4\""`: `New commit detected: "2ea4"`,
+		`up failed: exit status 1`:        `up failed: exit status 1`,
+		`"unterminated`:                   `"unterminated`,
+	} {
+		if got := operatorMessage(give); got != want {
+			t.Errorf("operatorMessage(%q) = %q, want %q", give, got, want)
+		}
+	}
+}
+
+func TestResourceRowsToneDiffLines(t *testing.T) {
+	rows := resourceRows([]store.LogResource{{Op: "update", Type: "aws:iam/userPolicy:UserPolicy",
+		Name: "p", Diff: "~ policy: {\n  + Sid: \"A\"\n  - Old: 1\n  same: 2"}})
+	if len(rows) != 1 || rows[0].Tone != "run" || rows[0].ShortType != "iam/UserPolicy" {
+		t.Fatalf("rows = %+v", rows)
+	}
+	var tones []string
+	for _, l := range rows[0].Lines {
+		tones = append(tones, l.Tone)
+	}
+	if diff := cmp.Diff([]string{"upd", "add", "del", ""}, tones); diff != "" {
+		t.Errorf("tones (-want +got):\n%s", diff)
+	}
+}
+
+func TestChangesNote(t *testing.T) {
+	up := store.Run{Type: store.RunTypeUp, UpdateName: "prod-1"}
+	tests := []struct {
+		name string
+		give store.Run
+		s3   time.Duration
+		want string
+	}{
+		{"pending", with(up, func(r *store.Run) { r.LogStatus = store.LogStatusPending }), 0,
+			"Reading the engine log..."},
+		{"captured nothing", with(up, func(r *store.Run) {
+			r.LogStatus, r.LogChanges = store.LogStatusCaptured, map[string]int64{"same": 3}
+		}), 0, "No resources changed."},
+		{"unavailable, waiting for s3", with(up, func(r *store.Run) {
+			r.LogStatus = store.LogStatusUnavailable
+		}), 2 * time.Minute, "The engine log was no longer available. Waiting for Pulumi history, read every 2 minutes."},
+		{"unavailable preview", with(up, func(r *store.Run) {
+			r.Type, r.LogStatus = store.RunTypePreview, store.LogStatusUnavailable
+		}), 2 * time.Minute, "The engine log was no longer available."},
+		{"imported", with(up, func(r *store.Run) {
+			r.UpdateName, r.Changes = "s3:prod-1", map[string]int64{"same": 1}
+		}), 0, "Only counts are available for this run."},
+		{"nothing at all", up, 0, "No change details are available for this run."},
+		{"resources listed", with(up, func(r *store.Run) {
+			r.LogStatus = store.LogStatusCaptured
+			r.Resources = []store.LogResource{{Op: "create"}}
+		}), 0, ""},
+	}
+	for _, tt := range tests {
+		if got := changesNote(tt.give, tt.s3); got != tt.want {
+			t.Errorf("%s: changesNote = %q, want %q", tt.name, got, tt.want)
+		}
+	}
+}
+
+func with(r store.Run, f func(*store.Run)) store.Run { f(&r); return r }

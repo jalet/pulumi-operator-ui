@@ -1,11 +1,13 @@
 package web
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/jalet/pulumi-operator-ui/internal/store"
 )
@@ -289,3 +291,118 @@ func changeSummary(counts map[string]int64) string {
 
 // imported reports whether a run was created from S3 history rather than seen as an Update.
 func imported(updateName string) bool { return strings.HasPrefix(updateName, "s3:") }
+
+// runCounts picks S3 counts first, then engine log counts, with where they came from.
+func runCounts(r store.Run) (map[string]int64, string) {
+	if r.Changes != nil {
+		return r.Changes, "Pulumi history"
+	}
+	if r.LogChanges != nil {
+		return r.LogChanges, "engine log"
+	}
+	return nil, ""
+}
+
+type diffLine struct{ Text, Tone string }
+
+type resourceRow struct {
+	Op, Tone, ShortType, Type, Name string
+	Lines                           []diffLine
+	Truncated                       bool
+}
+
+var _opTones = map[string]string{"create": "ok", "update": "run", "delete": "bad",
+	"replace": "att", "create-replacement": "att", "delete-replaced": "att", "import": "mute",
+	"refresh": "att"}
+
+// resourceRows prepares changed resources for the run page.
+func resourceRows(rs []store.LogResource) []resourceRow {
+	out := make([]resourceRow, 0, len(rs))
+	for _, r := range rs {
+		row := resourceRow{Op: r.Op, Tone: _opTones[r.Op], ShortType: shortType(r.Type),
+			Type: r.Type, Name: r.Name, Truncated: r.Truncated}
+		if row.Tone == "" {
+			row.Tone = "mute"
+		}
+		for l := range strings.SplitSeq(r.Diff, "\n") {
+			tone := ""
+			switch t := strings.TrimLeft(l, " "); {
+			case strings.HasPrefix(t, "+-"), strings.HasPrefix(t, "~"):
+				tone = "upd"
+			case strings.HasPrefix(t, "+"):
+				tone = "add"
+			case strings.HasPrefix(t, "-"):
+				tone = "del"
+			}
+			row.Lines = append(row.Lines, diffLine{Text: l, Tone: tone})
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+// shortType drops the provider and module casing: aws:iam/userPolicy:UserPolicy is
+// iam/UserPolicy, and a module named index is dropped.
+func shortType(t string) string {
+	parts := strings.Split(t, ":")
+	if len(parts) != 3 {
+		return t
+	}
+	module, _, _ := strings.Cut(parts[1], "/")
+	if module == "index" || module == "" {
+		return parts[2]
+	}
+	return module + "/" + parts[2]
+}
+
+// changesNote is the line shown under the counts when no resource list is shown.
+func changesNote(r store.Run, s3Interval time.Duration) string {
+	if len(r.Resources) > 0 {
+		return ""
+	}
+	switch r.LogStatus {
+	case store.LogStatusPending:
+		return "Reading the engine log..."
+	case store.LogStatusCaptured:
+		return "No resources changed."
+	case store.LogStatusUnavailable:
+		msg := "The engine log was no longer available."
+		if r.Changes == nil && s3Interval > 0 && r.Type != store.RunTypePreview {
+			msg += fmt.Sprintf(" Waiting for Pulumi history, read every %d minutes.",
+				int(s3Interval.Minutes()))
+		}
+		return msg
+	}
+	if r.Changes != nil {
+		return "Only counts are available for this run."
+	}
+	return "No change details are available for this run."
+}
+
+// operatorMessage decodes a message PKO wrapped as a JSON string; anything else is kept.
+func operatorMessage(s string) string {
+	if !strings.HasPrefix(s, `"`) {
+		return s
+	}
+	var out string
+	if err := json.Unmarshal([]byte(s), &out); err != nil {
+		return s
+	}
+	return out
+}
+
+// runView is what the run page and its header fragment render. Embedding keeps every
+// existing .Field reference in run.html working.
+type runView struct {
+	store.Run
+	Counts      map[string]int64
+	CountSource string
+	Rows        []resourceRow
+	Note        string
+}
+
+func newRunView(r store.Run, s3Interval time.Duration) runView {
+	counts, src := runCounts(r)
+	return runView{Run: r, Counts: counts, CountSource: src, Rows: resourceRows(r.Resources),
+		Note: changesNote(r, s3Interval)}
+}

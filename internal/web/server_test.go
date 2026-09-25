@@ -514,7 +514,6 @@ func TestRunPageLayout(t *testing.T) {
 		`<button type="button" class="copy-btn" data-copy="abc">Copy</button>`,
 		`whitespace-pre-wrap break-words`,
 		`message-failed`,
-		"No resource changes recorded for this run.",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("run page lacks %s", want)
@@ -623,7 +622,7 @@ func TestRunPageShowsChanges(t *testing.T) {
 			t.Errorf("run page lacks %q", want)
 		}
 	}
-	if strings.Contains(body, "No resource changes recorded") {
+	if strings.Contains(body, "No change details") {
 		t.Error("placeholder shown despite changes")
 	}
 }
@@ -661,5 +660,51 @@ func TestStackS3Notice(t *testing.T) {
 	}
 	if _, body := get(t, newServer(t, sampleReader(), nil), "/stacks/ns/app"); strings.Contains(body, "Pulumi history unavailable") {
 		t.Error("notice shown without an error")
+	}
+}
+
+func TestRunPageListsResources(t *testing.T) {
+	r := sampleReader()
+	r.runs[0].LogStatus = store.LogStatusCaptured
+	r.runs[0].LogChanges = map[string]int64{"update": 1, "same": 116}
+	r.runs[0].Resources = []store.LogResource{{Op: "update", Type: "aws:iam/userPolicy:UserPolicy",
+		Name: "pulumi-operator-ui", Diff: "~ policy: {\n    + Sid: \"ListHistory\"\n}"}}
+	_, body := get(t, newServer(t, r, nil), "/runs/7")
+	for _, want := range []string{"1 updated", "116 unchanged", "from engine log",
+		"<details", "iam/UserPolicy", `title="aws:iam/userPolicy:UserPolicy"`,
+		"pulumi-operator-ui", `class="diff-add"`, "&#43; Sid: &#34;ListHistory&#34;"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("run page lacks %s", want)
+		}
+	}
+}
+
+func TestRunPageDiffEscaped(t *testing.T) {
+	r := sampleReader()
+	r.runs[0].LogStatus = store.LogStatusCaptured
+	r.runs[0].Resources = []store.LogResource{{Op: "create", Type: "a:b/c:D", Name: "x",
+		Diff: `+ tag: "<script>alert(1)</script>"`}}
+	_, body := get(t, newServer(t, r, nil), "/runs/7")
+	if strings.Contains(body, "<script>alert(1)") {
+		t.Fatal("diff rendered unescaped")
+	}
+}
+
+func TestRunPagePendingNote(t *testing.T) {
+	r := sampleReader()
+	r.runs[0].LogStatus = store.LogStatusPending
+	_, body := get(t, newServer(t, r, nil), "/runs/7")
+	if !strings.Contains(body, "Reading the engine log...") {
+		t.Fatal("pending note missing")
+	}
+}
+
+func TestRunPageDecodesOperatorMessage(t *testing.T) {
+	r := sampleReader()
+	r.runs[0].Message = `"New commit detected: \"2ea4\""`
+	_, body := get(t, newServer(t, r, nil), "/runs/7")
+	if !strings.Contains(body, "New commit detected: &#34;2ea4&#34;") ||
+		strings.Contains(body, `\&#34;`) {
+		t.Fatal("operator message not decoded")
 	}
 }

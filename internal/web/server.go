@@ -46,19 +46,21 @@ type Deps struct {
 	AuthRoutes  func(*http.ServeMux)
 	Log         zerolog.Logger
 	Now         func() time.Time
+	S3Interval  time.Duration // 0 = S3 history off
 
 	// heartbeat overrides the SSE heartbeat interval; zero means the default. Tests only.
 	heartbeat time.Duration
 }
 
 type server struct {
-	now       func() time.Time
-	store     Reader
-	broker    *events.Broker
-	heartbeat time.Duration
-	log       zerolog.Logger
-	pages     map[string]*template.Template // executed directly, for fragments
-	bases     map[string]*template.Template // never executed; cloned per full page
+	now        func() time.Time
+	store      Reader
+	broker     *events.Broker
+	heartbeat  time.Duration
+	s3Interval time.Duration
+	log        zerolog.Logger
+	pages      map[string]*template.Template // executed directly, for fragments
+	bases      map[string]*template.Template // never executed; cloned per full page
 }
 
 type stackPage struct {
@@ -84,7 +86,7 @@ func New(d Deps) http.Handler {
 	}
 	s := &server{now: d.Now, store: d.Store, broker: d.Broker, log: d.Log, pages: parsePages(d.Now),
 		bases:     parsePages(d.Now),
-		heartbeat: d.heartbeat}
+		heartbeat: d.heartbeat, s3Interval: d.S3Interval}
 	if s.heartbeat == 0 {
 		s.heartbeat = sseHeartbeatIntervalDefault
 	}
@@ -263,7 +265,9 @@ func (s *server) loadStackPage(ctx context.Context, ns, name string, before *sto
 }
 
 func (s *server) runPage(w http.ResponseWriter, r *http.Request) {
-	s.withRun(w, r, func(run store.Run) { s.render(w, r, "run", "layout", run, http.StatusOK) })
+	s.withRun(w, r, func(run store.Run) {
+		s.render(w, r, "run", "layout", newRunView(run, s.s3Interval), http.StatusOK)
+	})
 }
 
 func (s *server) runRow(w http.ResponseWriter, r *http.Request) {
@@ -271,7 +275,9 @@ func (s *server) runRow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) runHeader(w http.ResponseWriter, r *http.Request) {
-	s.withRun(w, r, func(run store.Run) { s.render(w, r, "run", "run-header", run, http.StatusOK) })
+	s.withRun(w, r, func(run store.Run) {
+		s.render(w, r, "run", "run-header", newRunView(run, s.s3Interval), http.StatusOK)
+	})
 }
 
 func (s *server) withRun(w http.ResponseWriter, r *http.Request, fn func(store.Run)) {
