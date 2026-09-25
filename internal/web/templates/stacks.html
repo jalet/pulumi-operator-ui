@@ -1,0 +1,24 @@
+{{define "title"}}Pulumi stacks{{end}}
+
+{{define "content"}}
+<h1>Stacks</h1>
+<table class="grid">
+<thead><tr><th>Stack</th><th>Status</th><th>Last preview</th><th>Last up</th><th>Commit</th><th>Seen</th></tr></thead>
+{{template "stack-rows" .}}
+</table>
+{{end}}
+
+{{define "stack-rows"}}<tbody hx-get="/fragments/stacks" hx-trigger="sse:stacks, sse:resync" hx-swap="outerHTML">
+{{range .Stacks}}{{template "stack-row" .}}{{else}}<tr><td colspan="6" class="muted">No stacks found.</td></tr>{{end}}
+</tbody>{{end}}
+
+{{define "stack-row"}}<tr id="{{stackEvent .Namespace .Name}}" hx-get="/fragments/stacks/{{.Namespace}}/{{.Name}}" hx-trigger="sse:{{stackEvent .Namespace .Name}}" hx-swap="outerHTML">
+  <td><a href="/stacks/{{.Namespace}}/{{.Name}}"><span class="muted">{{.Namespace}}/</span>{{.Name}}</a></td>
+  <td>{{template "stack-status" .}}</td>
+  <td>{{template "brief" .LastPreview}}</td>
+  <td>{{template "brief" .LastUp}}</td>
+  <td>{{if .LastCommit}}<code class="commit">{{shortCommit .LastCommit}}</code>{{else}}<span class="muted">none</span>{{end}}</td>
+  <td><time datetime="{{iso .UpdatedAt}}">{{age .UpdatedAt}}</time></td>
+</tr>{{end}}
+
+{{define "stack-status"}}{{if .DeletedAt}}<span class="badge badge-deleted">deleted</span>{{else}}{{if .Ready}}<span class="badge badge-ok">ready</span>{{else}}<span class="badge badge-warn">not ready</span>{{end}}{{if .Reconciling}} <span class="badge">reconciling</span>{{end}}{{if .Stalled}} <span class="badge badge-bad">stalled</span>{{end}}{{end}}{{end}}

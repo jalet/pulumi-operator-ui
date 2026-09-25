@@ -1,0 +1,21 @@
+:root { --fg: #1c1e21; --muted: #6a6f76; --bg: #fff; --line: #e3e5e8; --ok: #1a7f37; --warn: #9a6700; --bad: #cf222e; }
+@media (prefers-color-scheme: dark) { :root { --fg: #e6e7e9; --muted: #9aa0a6; --bg: #16181b; --line: #2c3036; --ok: #3fb950; --warn: #d29922; --bad: #f85149; } }
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.5 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+.top { display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+.brand { font-weight: 600; color: inherit; text-decoration: none; }
+main { padding: 16px; max-width: 1200px; margin: 0 auto; }
+a { color: inherit; }
+.muted { color: var(--muted); }
+.grid { width: 100%; border-collapse: collapse; }
+.grid th, .grid td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.badge { display: inline-block; padding: 0 6px; border: 1px solid var(--line); border-radius: 10px; font-size: 12px; }
+.badge-ok, .state-succeeded { color: var(--ok); }
+.badge-warn, .state-pending, .state-running { color: var(--warn); }
+.badge-bad, .badge-deleted, .state-failed { color: var(--bad); }
+.commit { font-size: 12px; }
+.commit-approx { text-decoration: underline dotted; }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; }
+.facts dt { color: var(--muted); }
+.message { white-space: pre-wrap; overflow-wrap: anywhere; padding: 8px; border: 1px solid var(--line); }
+button { font: inherit; }

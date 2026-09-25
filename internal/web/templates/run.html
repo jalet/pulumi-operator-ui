@@ -1,0 +1,19 @@
+{{define "title"}}{{.UpdateName}}{{end}}
+
+{{define "content"}}
+<p><a href="/">Stacks</a> / <a href="/stacks/{{.Namespace}}/{{.StackName}}">{{.Namespace}}/{{.StackName}}</a></p>
+{{template "run-header" .}}
+{{end}}
+
+{{define "run-header"}}<section id="run-header-{{.ID}}" hx-get="/fragments/runs/{{.ID}}/header" hx-trigger="sse:run-{{.ID}}" hx-swap="outerHTML">
+<h1>{{.Type}} <span class="muted">{{.UpdateName}}</span></h1>
+<dl class="facts">
+  <dt>State</dt><dd>{{template "state" .State}}</dd>
+  <dt>Commit</dt><dd>{{template "commit" .}}</dd>
+  <dt>Started</dt><dd>{{if .StartedAt}}<time datetime="{{iso .StartedAt}}">{{.StartedAt.UTC.Format "2006-01-02 15:04:05 UTC"}}</time>{{else}}<span class="muted">not started</span>{{end}}</dd>
+  <dt>Ended</dt><dd>{{if .EndedAt}}<time datetime="{{iso .EndedAt}}">{{.EndedAt.UTC.Format "2006-01-02 15:04:05 UTC"}}</time>{{else}}<span class="muted">not ended</span>{{end}}</dd>
+  <dt>Duration</dt><dd>{{duration .StartedAt .EndedAt}}</dd>
+</dl>
+<h2>Operator message</h2>
+{{if .Message}}<pre class="message">{{.Message}}</pre>{{else}}<p class="muted">No message.</p>{{end}}
+</section>{{end}}
