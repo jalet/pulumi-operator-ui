@@ -59,3 +59,16 @@ where it lives. Items fixed later are marked with the commit that fixed them.
   entry leaks if a run is pruned during backoff. (~~A URN without `::` loses its first
   character.~~ Fixed in `d0b2972`.)
 - ~~The stack timeline shows only S3 counts, not engine log counts.~~ Fixed in `c34a13d`.
+
+## S3 history enrichment
+
+- The `InsertHistory` doc comment still says an existing key is left untouched; it now fills
+  empty columns and may enrich the linked run.
+- Enrichment during the one-time re-read publishes no run event, so open pages show the new
+  badge or title only after the next change or a reload.
+- The `vcs.*` fallback for commit links applies only when the Stack has no repo, not when its
+  repo is present but unparseable (for example a trailing slash).
+- `TestMigrationResetsCursors` cannot fail: a real test migrates to version 4, adds a cursor,
+  then migrates up.
+- The history upsert rewrites the row on every conflict (negligible: once per file on the
+  re-read, then only on retries).

@@ -304,3 +304,17 @@ func TestRunFromUpdateObservedAtIsCreation(t *testing.T) {
 		t.Errorf("ObservedAt = %v, want now for a future creation time", got.ObservedAt)
 	}
 }
+
+// A projectRepo with embedded credentials must not have them copied into the database.
+func TestStackFromObjectStripsRepoCredentials(t *testing.T) {
+	obj := load(t, "stack-ready")
+	spec := obj.Object["spec"].(map[string]any)
+	spec["projectRepo"] = "https://x-access-token:ghp_secret@github.com/o/r.git"
+	got, err := StackFromObject(obj, _now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RepoURL != "https://github.com/o/r.git" {
+		t.Fatalf("RepoURL = %q, want credentials stripped", got.RepoURL)
+	}
+}

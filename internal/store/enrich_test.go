@@ -135,3 +135,45 @@ func TestImportEntryNeverLinksUp(t *testing.T) {
 		t.Fatalf("link result = %+v, want imported, never linked to the up", got)
 	}
 }
+
+// A run backfilled from Stack.status.lastUpdate has no UID but is an operator run with a
+// real Update name; its history's message (PKO's "New commit detected...") is not a title.
+func TestBackfilledRunGetsNoTitle(t *testing.T) {
+	s, _ := newTestStore(t)
+	must(t, s.BackfillRun(t.Context(), Run{Namespace: "ns", UpdateName: "prod-1a0d", StackName: "s",
+		Type: RunTypeUp, State: RunStateSucceeded, ObservedAt: _t0.Add(time.Hour)}))
+	e := withOrigin(entry(_histKey, RunTypeUp, RunStateSucceeded, _t0.Add(9*time.Minute)))
+	e.Message, e.ExecKind = "New commit detected", "auto.local"
+	if _, err := s.InsertHistory(t.Context(), e, _t0); err != nil {
+		t.Fatal(err)
+	}
+	if got := link(t, s, _t0.Add(2*time.Hour)); got.Linked != 1 {
+		t.Fatalf("result = %+v, want the backfilled run linked", got)
+	}
+	got, err := s.GetRun(t.Context(), getRunByName(t, s, "ns", "prod-1a0d").ID)
+	must(t, err)
+	if got.Title != "" || got.ExecKind != "auto.local" {
+		t.Fatalf("backfilled run = title %q exec %q, want no title and the origin", got.Title, got.ExecKind)
+	}
+}
+
+// A laptop import between the operator's last up and the backfill must not stop that up's
+// history from linking to the backfilled run (which would import a duplicate).
+func TestImportEntryDoesNotBlockBackfillLink(t *testing.T) {
+	s, _ := newTestStore(t)
+	must(t, s.BackfillRun(t.Context(), Run{Namespace: "ns", UpdateName: "prod-1a0d", StackName: "s",
+		Type: RunTypeUp, State: RunStateSucceeded, ObservedAt: _t0.Add(time.Hour)}))
+	up := entry(_histKey, RunTypeUp, RunStateSucceeded, _t0.Add(9*time.Minute))
+	imp := entry("p/.pulumi/history/proj/dev/dev-1790239799000000000.history.json",
+		RunTypeImport, RunStateSucceeded, _t0.Add(20*time.Minute))
+	for _, e := range []HistoryEntry{up, imp} {
+		if _, err := s.InsertHistory(t.Context(), e, _t0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link(t, s, _t0.Add(2*time.Hour))
+	if state, id := historyRow(t, s, _histKey); state != "linked" || id == nil ||
+		*id != getRunByName(t, s, "ns", "prod-1a0d").ID {
+		t.Fatalf("up entry = %s %v, want linked to the backfilled run", state, id)
+	}
+}

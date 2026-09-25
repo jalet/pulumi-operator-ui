@@ -7,6 +7,7 @@ package record
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -122,7 +123,7 @@ func StackFromObject(obj *unstructured.Unstructured, now time.Time) (store.Stack
 		BackendURL:  s.Spec.Backend,
 		PulumiStack: s.Spec.Stack,
 		Preview:     s.Spec.Preview,
-		RepoURL:     s.Spec.ProjectRepo,
+		RepoURL:     withoutCredentials(s.Spec.ProjectRepo),
 	}
 	if s.Status.ProjectInfo != nil {
 		st.Project = s.Status.ProjectInfo.Name
@@ -288,4 +289,20 @@ func observedAt(obj *unstructured.Unstructured, now time.Time) time.Time {
 		return now
 	}
 	return created.UTC()
+}
+
+// withoutCredentials drops credentials from a git URL before it is stored: all userinfo of
+// an http(s) URL (a token can sit in the user part), and any password elsewhere. An SSH
+// user such as git@ is kept, since commit links depend on it. scp-like URLs
+// (git@host:owner/repo) carry no password and pass through.
+func withoutCredentials(repo string) string {
+	u, err := url.Parse(repo)
+	if err != nil || u.User == nil {
+		return repo
+	}
+	if _, hasPassword := u.User.Password(); u.Scheme == "http" || u.Scheme == "https" || hasPassword {
+		u.User = nil
+		return u.String()
+	}
+	return repo
 }

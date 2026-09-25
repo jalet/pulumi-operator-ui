@@ -140,13 +140,15 @@ type dbExec interface {
 }
 
 // enrichRun copies origin and repository from a history entry onto its run, filling only
-// empty values; the commit subject becomes the title only for runs without an Update.
+// empty values; the commit subject becomes the title only for imported runs (named "s3:").
+// Runs backfilled from Stack.status.lastUpdate have no UID either, but they are operator
+// runs whose history message is PKO's, not a commit subject.
 func enrichRun(ctx context.Context, db dbExec, runID int64, e HistoryEntry) error {
 	_, err := db.Exec(ctx, `UPDATE runs SET
 		    exec_kind  = CASE WHEN exec_kind = ''  THEN $2 ELSE exec_kind END,
 		    exec_agent = CASE WHEN exec_agent = '' THEN $3 ELSE exec_agent END,
 		    vcs_repo   = CASE WHEN vcs_repo = ''   THEN $4 ELSE vcs_repo END,
-		    title      = CASE WHEN uid IS NULL AND title = '' THEN $5 ELSE title END
+		    title      = CASE WHEN update_name LIKE 's3:%' AND title = '' THEN $5 ELSE title END
 		WHERE id = $1`, runID, e.ExecKind, e.ExecAgent, e.VCSRepo, e.Message)
 	if err != nil {
 		return fmt.Errorf("enrich run %d: %w", runID, err)
@@ -252,6 +254,7 @@ func (s *Store) linkOne(ctx context.Context, e HistoryEntry, now time.Time) (
 		       OR (r.started_at IS NULL AND r.uid IS NULL AND $7::timestamptz <= r.observed_at
 		           AND NOT EXISTS (SELECT 1 FROM s3_history h
 		                           WHERE h.namespace = r.namespace AND h.stack_name = r.stack_name
+		                             AND h.type = r.type
 		                             AND h.ended_at > $7 AND h.ended_at <= r.observed_at)))
 		LIMIT 2`, e.Namespace, e.StackName, e.Type, e.State, e.StartedAt, linkWindow.Seconds(),
 		e.EndedAt)

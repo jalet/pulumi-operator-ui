@@ -453,12 +453,13 @@ func newRunView(r store.Run, s3Interval time.Duration, s3Stack bool) runView {
 type originBadge struct{ Label, Tone, Agent string }
 
 // origin labels a run's origin; nil when nothing is known (an imported run without
-// exec.kind). A run seen through an Update is the operator's even before S3 history links.
+// exec.kind). Any run that was not imported from history came from the operator, including
+// one backfilled from Stack.status.lastUpdate, even before its S3 history links.
 func origin(r store.Run) *originBadge {
 	switch {
 	case r.ExecKind == "cli":
 		return &originBadge{"laptop", "att", r.ExecAgent}
-	case r.ExecKind == "auto.local", r.ExecKind == "" && r.UID != "":
+	case r.ExecKind == "auto.local", r.ExecKind == "" && !imported(r.UpdateName):
 		return &originBadge{"operator", "mute", r.ExecAgent}
 	case r.ExecKind != "":
 		return &originBadge{r.ExecKind, "mute", r.ExecAgent}

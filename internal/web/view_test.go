@@ -342,3 +342,10 @@ func TestChangeChipsImport(t *testing.T) {
 		t.Errorf("summary = %q", s)
 	}
 }
+
+func TestOriginBackfilledOperatorRun(t *testing.T) {
+	// Backfilled from Stack.status.lastUpdate: no UID, a real Update name, no history yet.
+	if got := origin(store.Run{UpdateName: "prod-1a0d"}); got == nil || got.Label != "operator" {
+		t.Fatalf("origin = %+v, want operator", got)
+	}
+}

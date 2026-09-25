@@ -103,14 +103,14 @@ func TestParseEntryImportWithOrigin(t *testing.T) {
 }
 
 func TestParseEntryCaps(t *testing.T) {
-	long := strings.Repeat("é", 150) // 300 bytes
+	long := strings.Repeat("€", 100) // 300 bytes of 3-byte runes: 200 falls mid-rune
 	body := fmt.Sprintf(`{"kind":"update","startTime":1,"endTime":2,"result":"succeeded",`+
 		`"message":%q,"environment":{"exec.kind":%q}}`, long, strings.Repeat("k", 40))
 	got, err := ParseEntry(_target, _key, []byte(body))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Message) > 200 || !utf8.ValidString(got.Message) {
+	if len(got.Message) != 198 || !utf8.ValidString(got.Message) {
 		t.Errorf("message: %d bytes, valid UTF-8 %v", len(got.Message), utf8.ValidString(got.Message))
 	}
 	if len(got.ExecKind) != 32 {
