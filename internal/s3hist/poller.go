@@ -147,7 +147,11 @@ func (p *Poller) pollStack(ctx context.Context, s store.S3Stack) {
 		p.fail(ctx, s, "client", err)
 		return
 	}
-	if err := p.pollTarget(ctx, client, t, now); err != nil {
+	// S3 calls get a deadline of one interval, so a stalled connection cannot hold up the
+	// other stacks or the next tick; store writes keep ctx so the outcome is still recorded.
+	s3ctx, cancel := context.WithTimeout(ctx, p.o.Interval)
+	defer cancel()
+	if err := p.pollTarget(ctx, s3ctx, client, t, now); err != nil {
 		p.fail(ctx, s, err.reason, err.err)
 		return
 	}
@@ -164,7 +168,7 @@ type pollError struct {
 // pollTarget lists and ingests page by page. The cursor moves past every processed key and
 // is saved after each page and before returning on an error, so a transient failure retries
 // the failed key next tick and the page cap simply resumes next tick.
-func (p *Poller) pollTarget(ctx context.Context, client S3API, t Target,
+func (p *Poller) pollTarget(ctx, s3ctx context.Context, client S3API, t Target,
 	now time.Time) *pollError {
 	cursor, err := p.o.Store.HistoryCursor(ctx, t.Bucket, t.Prefix)
 	if err != nil {
@@ -187,7 +191,7 @@ func (p *Poller) pollTarget(ctx context.Context, client S3API, t Target,
 		in.StartAfter = aws.String(cursor)
 	}
 	for range listPagesMax {
-		out, err := client.ListObjectsV2(ctx, in)
+		out, err := client.ListObjectsV2(s3ctx, in)
 		if err != nil {
 			if serr := save(); serr != nil {
 				return serr
@@ -197,7 +201,7 @@ func (p *Poller) pollTarget(ctx context.Context, client S3API, t Target,
 		for _, o := range out.Contents {
 			key := aws.ToString(o.Key)
 			if strings.HasSuffix(key, ".history.json") {
-				if err := p.ingest(ctx, client, t, key, now); err != nil {
+				if err := p.ingest(ctx, s3ctx, client, t, key, now); err != nil {
 					if serr := save(); serr != nil {
 						return serr
 					}
@@ -221,9 +225,9 @@ func (p *Poller) pollTarget(ctx context.Context, client S3API, t Target,
 
 // ingest fetches and stores one key. Permanent problems with the file (bad kind or result,
 // bad JSON, too large, too old) are skipped and counted; only fetch errors are returned.
-func (p *Poller) ingest(ctx context.Context, client S3API, t Target, key string,
+func (p *Poller) ingest(ctx, s3ctx context.Context, client S3API, t Target, key string,
 	now time.Time) error {
-	out, err := client.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(t.Bucket),
+	out, err := client.GetObject(s3ctx, &s3.GetObjectInput{Bucket: aws.String(t.Bucket),
 		Key: aws.String(key)})
 	if err != nil {
 		return err

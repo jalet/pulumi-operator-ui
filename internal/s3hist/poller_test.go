@@ -31,13 +31,14 @@ type fakeS3 struct {
 	objects map[string]map[string][]byte // bucket -> key -> body
 	listErr map[string]error             // bucket -> error
 	getErr  map[string]error             // key -> error
+	stall   map[string]bool              // bucket -> ListObjectsV2 hangs until cancelled
 	lists   []s3.ListObjectsV2Input
 	gets    []string
 }
 
 func newFakeS3() *fakeS3 {
 	return &fakeS3{objects: map[string]map[string][]byte{}, listErr: map[string]error{},
-		getErr: map[string]error{}}
+		getErr: map[string]error{}, stall: map[string]bool{}}
 }
 
 func (f *fakeS3) put(bucket, key string, body []byte) {
@@ -49,8 +50,12 @@ func (f *fakeS3) put(bucket, key string, body []byte) {
 	f.objects[bucket][key] = body
 }
 
-func (f *fakeS3) ListObjectsV2(_ context.Context, in *s3.ListObjectsV2Input,
+func (f *fakeS3) ListObjectsV2(ctx context.Context, in *s3.ListObjectsV2Input,
 	_ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+	if f.stall[aws.ToString(in.Bucket)] {
+		<-ctx.Done() // a connection that never answers
+		return nil, ctx.Err()
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.lists = append(f.lists, *in)
@@ -373,5 +378,30 @@ func TestTickStopsAtFetchError(t *testing.T) {
 	}
 	if got := st.cursor(); got != _prefix+"dev-1.history.json" {
 		t.Fatalf("cursor = %q, want dev-1 so dev-2 is retried", got)
+	}
+}
+
+// A stalled S3 connection must not hold up the other stacks or the next tick.
+func TestTickTimesOutStalledStack(t *testing.T) {
+	stalled := _stack
+	stalled.Name, stalled.BackendURL = "stalled", "s3://slow/p"
+	st, fs := newFakeStore(_stack, stalled), newFakeS3()
+	fs.stall["slow"] = true
+	fs.put("b", _prefix+"dev-1.history.json", historyBody("update", 1790239732))
+	p := New(Options{Store: st, Client: func(string) (S3API, error) { return fs, nil },
+		Interval: 100 * time.Millisecond, Retention: 180 * 24 * time.Hour,
+		Now: func() time.Time { return _now }, Log: zerolog.Nop()})
+	done := make(chan struct{})
+	go func() { p.tick(t.Context()); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("tick blocked on a stalled stack")
+	}
+	if msg, _ := st.status("ns/stalled"); !strings.Contains(msg, "deadline") {
+		t.Errorf("stalled stack status = %q", msg)
+	}
+	if len(st.inserted) != 1 {
+		t.Errorf("healthy stack entries = %d, want 1", len(st.inserted))
 	}
 }
