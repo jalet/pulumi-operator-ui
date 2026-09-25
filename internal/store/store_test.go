@@ -162,10 +162,12 @@ func getStackRow(t *testing.T, s *Store, ns, name string) Stack {
 	t.Helper()
 	var st Stack
 	err := s.pool.QueryRow(t.Context(), `
-		SELECT namespace, name, ready, reconciling, stalled, last_commit, updated_at, deleted_at
+		SELECT namespace, name, ready, reconciling, stalled, last_commit, updated_at, deleted_at,
+		       backend_url, project, pulumi_stack, s3_error, s3_checked_at
 		FROM stacks WHERE namespace = $1 AND name = $2`, ns, name).Scan(
 		&st.Namespace, &st.Name, &st.Ready, &st.Reconciling, &st.Stalled, &st.LastCommit,
-		&st.UpdatedAt, &st.DeletedAt)
+		&st.UpdatedAt, &st.DeletedAt, &st.BackendURL, &st.Project, &st.PulumiStack, &st.S3Error,
+		&st.S3CheckedAt)
 	if err != nil {
 		t.Fatal(err)
 	}

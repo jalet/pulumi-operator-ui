@@ -148,11 +148,13 @@ func TestStackFromObject(t *testing.T) {
 		{
 			give: "stack-ready",
 			want: store.Stack{Namespace: "ns", Name: "app", Ready: true, LastCommit: "bbb",
-				UpdatedAt: _now},
+				UpdatedAt: _now, BackendURL: "s3://b/p?region=eu-north-1", Project: "proj",
+				PulumiStack: "dev"},
 		},
 		{
 			give: "stack-stalled",
-			want: store.Stack{Namespace: "ns", Name: "app", Stalled: true, UpdatedAt: _now},
+			want: store.Stack{Namespace: "ns", Name: "app", Stalled: true, UpdatedAt: _now,
+				PulumiStack: "dev"},
 		},
 	}
 	for _, tt := range tests {

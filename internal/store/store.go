@@ -56,8 +56,9 @@ const (
 	RunStateSucceeded RunState = "succeeded"
 	RunStateFailed    RunState = "failed"
 
-	CommitSourceUpdate CommitSource = "update"
-	CommitSourceStack  CommitSource = "stack"
+	CommitSourceUpdate  CommitSource = "update"
+	CommitSourceStack   CommitSource = "stack"
+	CommitSourceHistory CommitSource = "history" // exact, from the history file's git.head
 )
 
 // Stack is one row of the stacks table.
@@ -70,6 +71,11 @@ type Stack struct {
 	LastCommit  string
 	UpdatedAt   time.Time
 	DeletedAt   *time.Time
+	BackendURL  string     // spec.backend
+	Project     string     // status.projectInfo.name
+	PulumiStack string     // spec.stack
+	S3Error     string     // last S3 history error, "" when fine; written by SetStackS3Status
+	S3CheckedAt *time.Time // last successful S3 history poll
 }
 
 // Run is one row of the runs table.

@@ -278,3 +278,52 @@ func TestSweepStacks(t *testing.T) {
 		t.Errorf("events (-want +got):\n%s", diff)
 	}
 }
+
+func TestUpsertStackStoresDiscoveryFields(t *testing.T) {
+	s, _ := newTestStore(t)
+	st := Stack{Namespace: "ns", Name: "s", UpdatedAt: time.Now(), BackendURL: "s3://b/p",
+		Project: "proj", PulumiStack: "dev"}
+	must(t, s.UpsertStack(t.Context(), st))
+	got := getStackRow(t, s, "ns", "s")
+	if got.BackendURL != "s3://b/p" || got.Project != "proj" || got.PulumiStack != "dev" {
+		t.Fatalf("got %+v", got)
+	}
+	st.BackendURL, st.Project = "s3://b/q", "other"
+	must(t, s.UpsertStack(t.Context(), st))
+	if got := getStackRow(t, s, "ns", "s"); got.BackendURL != "s3://b/q" || got.Project != "other" {
+		t.Fatalf("not overwritten: %+v", got)
+	}
+}
+
+func TestSetStackS3Status(t *testing.T) {
+	s, _ := newTestStore(t)
+	ctx := t.Context()
+	must(t, s.UpsertStack(ctx, Stack{Namespace: "ns", Name: "s", UpdatedAt: time.Now()}))
+	at := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	must(t, s.SetStackS3Status(ctx, "ns", "s", "access denied", at))
+	got := getStackRow(t, s, "ns", "s")
+	if got.S3Error != "access denied" || got.S3CheckedAt != nil {
+		t.Fatalf("after error: %+v", got)
+	}
+	must(t, s.SetStackS3Status(ctx, "ns", "s", "", at))
+	got = getStackRow(t, s, "ns", "s")
+	if got.S3Error != "" || got.S3CheckedAt == nil || !got.S3CheckedAt.Equal(at) {
+		t.Fatalf("after success: %+v", got)
+	}
+	must(t, s.SetStackS3Status(ctx, "ns", "nope", "x", at))
+	// UpsertStack must not reset the S3 status.
+	must(t, s.UpsertStack(ctx, Stack{Namespace: "ns", Name: "s", UpdatedAt: time.Now()}))
+	if got := getStackRow(t, s, "ns", "s"); got.S3CheckedAt == nil {
+		t.Fatal("UpsertStack cleared s3_checked_at")
+	}
+}
+
+func TestHistoryCommitSourceAllowed(t *testing.T) {
+	s, _ := newTestStore(t)
+	r := run("ns", "u1", RunStateSucceeded)
+	r.Commit, r.CommitSource = "h1", CommitSourceHistory
+	mustUpsert(t, s, r)
+	if got := getRunByName(t, s, "ns", "u1"); got.CommitSource != CommitSourceHistory {
+		t.Fatalf("commit source = %q", got.CommitSource)
+	}
+}

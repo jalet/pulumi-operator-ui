@@ -109,13 +109,17 @@ func (s *Store) UpsertStack(ctx context.Context, st Stack) error {
 		return fmt.Errorf("upsert stack %s/%s: %w", st.Namespace, st.Name, err)
 	}
 	_, err = tx.Exec(ctx, `
-		INSERT INTO stacks (namespace, name, ready, reconciling, stalled, last_commit, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO stacks (namespace, name, ready, reconciling, stalled, last_commit, updated_at,
+		                    backend_url, project, pulumi_stack)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (namespace, name) DO UPDATE SET
 		    ready = EXCLUDED.ready, reconciling = EXCLUDED.reconciling,
 		    stalled = EXCLUDED.stalled, last_commit = EXCLUDED.last_commit,
-		    updated_at = EXCLUDED.updated_at, deleted_at = NULL`,
-		st.Namespace, st.Name, st.Ready, st.Reconciling, st.Stalled, st.LastCommit, st.UpdatedAt)
+		    updated_at = EXCLUDED.updated_at, deleted_at = NULL,
+		    backend_url = EXCLUDED.backend_url, project = EXCLUDED.project,
+		    pulumi_stack = EXCLUDED.pulumi_stack`,
+		st.Namespace, st.Name, st.Ready, st.Reconciling, st.Stalled, st.LastCommit, st.UpdatedAt,
+		st.BackendURL, st.Project, st.PulumiStack)
 	if err != nil {
 		return fmt.Errorf("upsert stack %s/%s: %w", st.Namespace, st.Name, err)
 	}
@@ -127,6 +131,23 @@ func (s *Store) UpsertStack(ctx context.Context, st Stack) error {
 		kind = events.KindStackSet
 	}
 	s.pub.Publish(events.Event{Kind: kind, Namespace: st.Namespace, Stack: st.Name})
+	return nil
+}
+
+// SetStackS3Status records the outcome of polling one Stack's history: errMsg "" on success,
+// which also stamps s3_checked_at. An unknown stack is a no-op.
+func (s *Store) SetStackS3Status(ctx context.Context, namespace, name, errMsg string,
+	at time.Time) error {
+	q := `UPDATE stacks SET s3_error = $3 WHERE namespace = $1 AND name = $2`
+	args := []any{namespace, name, truncate(errMsg, 512)}
+	if errMsg == "" {
+		q = `UPDATE stacks SET s3_error = '', s3_checked_at = $3
+		     WHERE namespace = $1 AND name = $2`
+		args = []any{namespace, name, at}
+	}
+	if _, err := s.pool.Exec(ctx, q, args...); err != nil {
+		return fmt.Errorf("set s3 status %s/%s: %w", namespace, name, err)
+	}
 	return nil
 }
 
