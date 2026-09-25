@@ -1,7 +1,9 @@
 {{define "title"}}{{.Title}}{{end}}
 
 {{define "content"}}
-<h1>{{.Title}}</h1>
-<p>{{.Detail}}</p>
-<p><a href="/">Back to stacks</a></p>
+<section class="panel mx-auto mt-8 max-w-lg p-6 text-center">
+  <h1 class="text-lg font-bold">{{.Title}}</h1>
+  <p class="mt-2 text-sm text-muted">{{.Detail}}</p>
+  <p class="mt-4 text-sm"><a class="underline hover:text-ink" href="/">Back to stacks</a></p>
+</section>
 {{end}}

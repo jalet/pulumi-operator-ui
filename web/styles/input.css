@@ -95,17 +95,4 @@
   @media (prefers-color-scheme: dark) {
     .message-failed { color: #f3c4c4; border-color: #3b1d1d; background: #0b0d11; }
   }
-
-  /* LEGACY: classes of the pre-redesign templates, kept until Tasks 4 to 6 rebuild each page.
-     Removed in Task 7. */
-  .muted { @apply text-muted; }
-  .grid-legacy, table.grid { @apply w-full border-collapse text-sm; }
-  table.grid th, table.grid td { @apply border-b border-line px-2 py-1.5 text-left; }
-  .badge { @apply inline-block rounded-full border border-line px-2 text-xs; }
-  .state-succeeded, .badge-ok { color: #34a853; }
-  .state-pending, .state-running, .badge-warn { color: #b88600; }
-  .state-failed, .badge-bad, .badge-deleted { color: #ea4335; }
-  .facts { @apply grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1; }
-  .facts dt { @apply text-muted; }
-  .message { @apply whitespace-pre-wrap break-words border border-line p-2; }
 }

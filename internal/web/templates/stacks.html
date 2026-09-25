@@ -29,5 +29,3 @@
 </tr>{{end}}
 
 {{define "last-run"}}{{if .}}<a class="inline-flex items-center gap-2 whitespace-nowrap hover:underline" href="/runs/{{.ID}}">{{template "pill" (stateBadge .State)}}<span class="text-xs text-muted">{{age .At}}{{with duration .StartedAt .EndedAt}} · {{.}}{{end}}</span></a>{{else}}<span class="text-muted">none</span>{{end}}{{end}}
-
-{{define "stack-status"}}{{template "pill" (health .)}}{{end}}

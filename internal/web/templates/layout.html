@@ -23,8 +23,4 @@
 </body>
 </html>{{end}}
 
-{{define "state"}}<span class="state state-{{.}}">{{.}}</span>{{end}}
-
-{{define "brief"}}{{if .}}<a href="/runs/{{.ID}}">{{template "state" .State}}</a> <time datetime="{{iso .At}}">{{age .At}}</time>{{else}}<span class="muted">none</span>{{end}}{{end}}
-
-{{define "commit"}}{{if .Commit}}<code {{if eq .CommitSource "stack"}}class="commit commit-approx" title="approximate: taken from the Stack when the run was first seen"{{else}}class="commit"{{end}}>{{shortCommit .Commit}}</code>{{else}}<span class="muted">unknown</span>{{end}}{{end}}
+{{define "commit"}}{{if .Commit}}<code {{if eq .CommitSource "stack"}}class="commit commit-approx" title="approximate: taken from the Stack when the run was first seen"{{else}}class="commit"{{end}}>{{shortCommit .Commit}}</code>{{else}}<span class="text-muted">unknown</span>{{end}}{{end}}
