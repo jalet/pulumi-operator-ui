@@ -77,9 +77,10 @@ type currentUpdate struct {
 
 type stackObj struct {
 	Spec struct {
-		Stack   string `json:"stack"`
-		Backend string `json:"backend"`
-		Preview bool   `json:"preview"`
+		Stack       string `json:"stack"`
+		Backend     string `json:"backend"`
+		Preview     bool   `json:"preview"`
+		ProjectRepo string `json:"projectRepo"`
 	} `json:"spec"`
 	Status struct {
 		ProjectInfo *struct {
@@ -121,6 +122,7 @@ func StackFromObject(obj *unstructured.Unstructured, now time.Time) (store.Stack
 		BackendURL:  s.Spec.Backend,
 		PulumiStack: s.Spec.Stack,
 		Preview:     s.Spec.Preview,
+		RepoURL:     s.Spec.ProjectRepo,
 	}
 	if s.Status.ProjectInfo != nil {
 		st.Project = s.Status.ProjectInfo.Name
