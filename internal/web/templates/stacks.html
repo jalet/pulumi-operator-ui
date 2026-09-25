@@ -5,8 +5,8 @@
 {{template "stack-overview" .}}
 {{end}}
 
-{{define "stack-overview"}}<section id="stack-overview" hx-get="/fragments/stacks{{if .NS}}?ns={{.NS}}{{end}}" hx-trigger="sse:stacks, sse:resync, sse:stack-any" hx-swap="outerHTML">
-<div class="mb-4 flex flex-wrap gap-2">{{range .Counters}}{{template "counter" .}}{{end}}</div>
+{{define "stack-overview"}}<section id="stack-overview" hx-get="{{.OverviewURL}}" hx-trigger="sse:stacks, sse:resync" hx-swap="outerHTML">
+{{template "stack-counters" .}}
 <nav class="mb-3 flex flex-wrap gap-2" aria-label="Namespaces">{{range .Chips}}{{template "chip" .}}{{end}}</nav>
 <div class="panel overflow-x-auto">
 <table class="w-full text-sm">
@@ -19,6 +19,10 @@
 </table>
 </div>
 </section>{{end}}
+
+{{/* Counters depend on every stack, so they refresh on any stack change, debounced so a
+     resync of many stacks costs one request. The table rows refresh themselves. */}}
+{{define "stack-counters"}}<div id="stack-counters" class="mb-4 flex flex-wrap gap-2" hx-get="{{.CountersURL}}" hx-trigger="sse:stack-any delay:500ms" hx-swap="outerHTML">{{range .Counters}}{{template "counter" .}}{{end}}</div>{{end}}
 
 {{define "stack-row"}}<tr id="{{stackEvent .Namespace .Name}}" class="border-b border-line last:border-0" hx-get="/fragments/stacks/{{.Namespace}}/{{.Name}}" hx-trigger="sse:{{stackEvent .Namespace .Name}}" hx-swap="outerHTML">
   <td class="px-3 py-2.5 whitespace-nowrap"><a class="font-bold hover:underline" href="/stacks/{{.Namespace}}/{{.Name}}">{{.Name}}</a> <span class="text-muted">{{.Namespace}}</span></td>

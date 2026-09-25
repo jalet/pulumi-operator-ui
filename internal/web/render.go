@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"cmp"
 	"embed"
 	"fmt"
 	"html/template"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jalet/pulumi-operator-ui/internal/auth"
 	"github.com/jalet/pulumi-operator-ui/internal/events"
 	"github.com/jalet/pulumi-operator-ui/internal/store"
 )
@@ -41,6 +43,8 @@ func parsePages(now func() time.Time) map[string]*template.Template {
 		"duration":    duration,
 		"stackEvent":  events.StackEventName,
 		"cursor":      formatCursor,
+		// user is replaced per request in render; the default renders no name.
+		"user": func() string { return "" },
 	}
 	pages := make(map[string]*template.Template, len(_pageFiles))
 	for name, files := range _pageFiles {
@@ -51,11 +55,25 @@ func parsePages(now func() time.Time) map[string]*template.Template {
 }
 
 // render executes into a buffer first so a template error becomes a clean 500 instead
-// of a half-written page.
-func (s *server) render(w http.ResponseWriter, page, name string, data any, status int) {
+// of a half-written page. Full pages ("layout") get the signed-in user in the header: they
+// run on a per-request clone of a never-executed set, because html/template cannot clone a
+// set after it has executed.
+func (s *server) render(w http.ResponseWriter, r *http.Request, page, name string, data any,
+	status int) {
 	t, ok := s.pages[page]
 	if !ok {
 		panic("invariant violated: unknown page " + page)
+	}
+	if name == "layout" {
+		var err error
+		if t, err = s.bases[page].Clone(); err != nil {
+			panic("invariant violated: clone page " + page + ": " + err.Error())
+		}
+		user := ""
+		if sess, ok := auth.SessionFrom(r.Context()); ok {
+			user = cmp.Or(sess.Name, sess.Email)
+		}
+		t.Funcs(template.FuncMap{"user": func() string { return user }})
 	}
 	var buf bytes.Buffer
 	if err := t.ExecuteTemplate(&buf, name, data); err != nil {
@@ -68,8 +86,9 @@ func (s *server) render(w http.ResponseWriter, page, name string, data any, stat
 	_, _ = buf.WriteTo(w) // a client that went away is not an error worth logging
 }
 
-func (s *server) renderError(w http.ResponseWriter, status int, title, detail string) {
-	s.render(w, "error", "layout", struct{ Title, Detail string }{title, detail}, status)
+func (s *server) renderError(w http.ResponseWriter, r *http.Request, status int, title,
+	detail string) {
+	s.render(w, r, "error", "layout", struct{ Title, Detail string }{title, detail}, status)
 }
 
 func timeOf(v any) time.Time {

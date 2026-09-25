@@ -83,6 +83,10 @@ type listPage struct {
 	Namespaces []string
 	Chips      []chip
 	NS         string
+	// OverviewURL and CountersURL are the live-refresh fragment URLs, query-escaped here
+	// because html/template does not treat hx-get as a URL attribute.
+	OverviewURL string
+	CountersURL string
 }
 
 // buildListPage filters stacks to namespace ns ("" = all). Namespaces and chips always come
@@ -110,8 +114,13 @@ func buildListPage(all []store.StackSummary, ns string) listPage {
 	for _, n := range namespaces {
 		chips = append(chips, chip{Label: n, Href: "/?ns=" + url.QueryEscape(n), On: n == ns})
 	}
+	query := ""
+	if ns != "" {
+		query = "?ns=" + url.QueryEscape(ns)
+	}
 	return listPage{
 		Stacks: shown, Counts: c, Namespaces: namespaces, Chips: chips, NS: ns,
+		OverviewURL: "/fragments/stacks" + query, CountersURL: "/fragments/stacks/counters" + query,
 		Counters: []counterView{
 			{Label: "Stacks", Value: c.Total},
 			{Label: "Ready", Value: c.Ready, Tone: "ok"},

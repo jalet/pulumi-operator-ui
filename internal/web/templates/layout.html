@@ -15,7 +15,7 @@
 <div hidden hx-get="/fragments/session" hx-trigger="sse:session-expired" hx-swap="none"></div>
 <header class="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
   <a class="text-sm font-bold tracking-tight" href="/">Pulumi stacks</a>
-  <form method="post" action="/auth/logout"><button type="submit" class="text-sm text-muted hover:text-ink">Sign out</button></form>
+  <div class="flex items-center gap-4">{{with user}}<span class="text-sm text-muted">{{.}}</span>{{end}}<form method="post" action="/auth/logout"><button type="submit" class="text-sm text-muted hover:text-ink">Sign out</button></form></div>
 </header>
 <main class="mx-auto max-w-6xl px-4 pb-12">
 {{block "content" .}}{{end}}

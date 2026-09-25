@@ -15,6 +15,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/jalet/pulumi-operator-ui/internal/auth"
 	"github.com/jalet/pulumi-operator-ui/internal/events"
 	"github.com/jalet/pulumi-operator-ui/internal/store"
 )
@@ -168,7 +169,10 @@ func TestStackListHasSSEWiring(t *testing.T) {
 	for _, want := range []string{
 		`sse-connect="/events"`,
 		`id="stack-overview"`,
-		`hx-trigger="sse:stacks, sse:resync, sse:stack-any"`,
+		`hx-trigger="sse:stacks, sse:resync"`,
+		`id="stack-counters"`,
+		`hx-get="/fragments/stacks/counters"`,
+		`hx-trigger="sse:stack-any delay:500ms"`,
 		`hx-trigger="sse:` + events.StackEventName("ns", "app") + `"`,
 		`hx-get="/fragments/stacks/ns/app"`,
 		`<script src="/static/htmx.min.js"`,
@@ -522,5 +526,70 @@ func TestRunPageSucceededHasNoFailedTint(t *testing.T) {
 	srv := newServer(t, sampleReader(), nil)
 	if _, body := get(t, srv, "/runs/7"); strings.Contains(body, "message-failed") {
 		t.Fatal("succeeded run has the failed tint")
+	}
+}
+
+// One stack event must refresh the counters only, not re-swap the table and chips (which
+// would drop keyboard focus and horizontal scroll).
+func TestOverviewDoesNotSwapOnEveryStackEvent(t *testing.T) {
+	srv := newServer(t, sampleReader(), nil)
+	_, body := get(t, srv, "/")
+	before, after, ok := strings.Cut(body, `id="stack-overview"`)
+	if !ok {
+		t.Fatal("no overview section")
+	}
+	tag, _, _ := strings.Cut(after, ">")
+	tag = before[strings.LastIndex(before, "<"):] + tag
+	if strings.Contains(tag, "stack-any") {
+		t.Fatalf("overview swaps on stack-any: %s", tag)
+	}
+}
+
+func TestCountersFragment(t *testing.T) {
+	srv := newServer(t, twoNamespaceReader(), nil)
+	resp, body := get(t, srv, "/fragments/stacks/counters?ns=infra")
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `id="stack-counters"`) ||
+		strings.Contains(body, "<table") {
+		t.Fatalf("counters fragment = %d:\n%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, `hx-get="/fragments/stacks/counters?ns=infra"`) ||
+		!strings.Contains(body, `>1</div><div class="text-xs text-muted">Stacks</div>`) {
+		t.Errorf("counters fragment lost the namespace:\n%s", body)
+	}
+}
+
+func TestFragmentURLsEscapeNamespace(t *testing.T) {
+	srv := newServer(t, sampleReader(), nil)
+	_, body := get(t, srv, "/?ns=a%26b%3Dc")
+	if strings.Contains(body, "ns=a&amp;b=c") || strings.Contains(body, "ns=a&b=c") {
+		t.Fatal("namespace not query-escaped in fragment URLs")
+	}
+	if !strings.Contains(body, `hx-get="/fragments/stacks?ns=a%26b%3Dc"`) {
+		t.Errorf("overview URL not escaped:\n%s", body)
+	}
+}
+
+func TestHeaderShowsSignedInUser(t *testing.T) {
+	signedIn := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			s := auth.Session{Subject: "u1", Name: "Joakim <J>", Email: "j@example.com",
+				ExpiresAt: time.Now().Add(time.Hour)}
+			next.ServeHTTP(w, r.WithContext(auth.WithSession(r.Context(), s)))
+		})
+	}
+	srv := newServer(t, sampleReader(), signedIn)
+	_, body := get(t, srv, "/")
+	if !strings.Contains(body, "Joakim &lt;J&gt;") {
+		t.Errorf("header lacks the signed-in user's name")
+	}
+	emailOnly := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			s := auth.Session{Subject: "u1", Email: "j@example.com", ExpiresAt: time.Now().Add(time.Hour)}
+			next.ServeHTTP(w, r.WithContext(auth.WithSession(r.Context(), s)))
+		})
+	}
+	srv2 := newServer(t, sampleReader(), emailOnly)
+	if _, body := get(t, srv2, "/stacks/ns/app"); !strings.Contains(body, "j@example.com") {
+		t.Error("header lacks the email fallback")
 	}
 }

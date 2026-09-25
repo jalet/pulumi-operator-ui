@@ -57,7 +57,8 @@ type server struct {
 	broker    *events.Broker
 	heartbeat time.Duration
 	log       zerolog.Logger
-	pages     map[string]*template.Template
+	pages     map[string]*template.Template // executed directly, for fragments
+	bases     map[string]*template.Template // never executed; cloned per full page
 }
 
 type stackPage struct {
@@ -82,6 +83,7 @@ func New(d Deps) http.Handler {
 		panic("invariant violated: web.Deps is incomplete")
 	}
 	s := &server{now: d.Now, store: d.Store, broker: d.Broker, log: d.Log, pages: parsePages(d.Now),
+		bases:     parsePages(d.Now),
 		heartbeat: d.heartbeat}
 	if s.heartbeat == 0 {
 		s.heartbeat = sseHeartbeatIntervalDefault
@@ -98,6 +100,7 @@ func New(d Deps) http.Handler {
 	protected := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, d.RequireAuth(h)) }
 	protected("GET /{$}", s.index)
 	protected("GET /fragments/stacks", s.stackRows)
+	protected("GET /fragments/stacks/counters", s.stackCounters)
 	protected("GET /fragments/stacks/{ns}/{name}", s.stackRow)
 	protected("GET /fragments/stacks/{ns}/{name}/runs", s.stackRuns)
 	protected("GET /stacks/{ns}/{name}", s.stackPage)
@@ -155,19 +158,29 @@ func (s *server) readyz(w http.ResponseWriter, r *http.Request) {
 func (s *server) index(w http.ResponseWriter, r *http.Request) {
 	stacks, err := s.store.ListStacks(r.Context())
 	if err != nil {
-		s.storeError(w, err)
+		s.storeError(w, r, err)
 		return
 	}
-	s.render(w, "stacks", "layout", buildListPage(stacks, r.URL.Query().Get("ns")), http.StatusOK)
+	s.render(w, r, "stacks", "layout", buildListPage(stacks, r.URL.Query().Get("ns")), http.StatusOK)
 }
 
 func (s *server) stackRows(w http.ResponseWriter, r *http.Request) {
 	stacks, err := s.store.ListStacks(r.Context())
 	if err != nil {
-		s.storeError(w, err)
+		s.storeError(w, r, err)
 		return
 	}
-	s.render(w, "stacks", "stack-overview", buildListPage(stacks, r.URL.Query().Get("ns")),
+	s.render(w, r, "stacks", "stack-overview", buildListPage(stacks, r.URL.Query().Get("ns")),
+		http.StatusOK)
+}
+
+func (s *server) stackCounters(w http.ResponseWriter, r *http.Request) {
+	stacks, err := s.store.ListStacks(r.Context())
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	s.render(w, r, "stacks", "stack-counters", buildListPage(stacks, r.URL.Query().Get("ns")),
 		http.StatusOK)
 }
 
@@ -176,14 +189,14 @@ func (s *server) stackRows(w http.ResponseWriter, r *http.Request) {
 func (s *server) stackRow(w http.ResponseWriter, r *http.Request) {
 	st, err := s.store.GetStack(r.Context(), r.PathValue("ns"), r.PathValue("name"))
 	if err != nil {
-		s.storeError(w, err)
+		s.storeError(w, r, err)
 		return
 	}
 	if st.DeletedAt != nil {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	s.render(w, "stacks", "stack-row", st, http.StatusOK)
+	s.render(w, r, "stacks", "stack-row", st, http.StatusOK)
 }
 
 func (s *server) stackPage(w http.ResponseWriter, r *http.Request) {
@@ -191,38 +204,38 @@ func (s *server) stackPage(w http.ResponseWriter, r *http.Request) {
 	if raw := r.URL.Query().Get("before"); raw != "" {
 		c, ok := parseCursor(raw)
 		if !ok {
-			s.renderError(w, http.StatusBadRequest, "Bad request", "The page cursor is invalid.")
+			s.renderError(w, r, http.StatusBadRequest, "Bad request", "The page cursor is invalid.")
 			return
 		}
 		before = c
 	}
 	types, err := parseTypes(r.URL.Query().Get("types"))
 	if err != nil {
-		s.renderError(w, http.StatusBadRequest, "Bad request", "Unknown run type.")
+		s.renderError(w, r, http.StatusBadRequest, "Bad request", "Unknown run type.")
 		return
 	}
 	page, err := s.loadStackPage(r.Context(), r.PathValue("ns"), r.PathValue("name"), before,
 		types)
 	if err != nil {
-		s.storeError(w, err)
+		s.storeError(w, r, err)
 		return
 	}
-	s.render(w, "stack", "layout", page, http.StatusOK)
+	s.render(w, r, "stack", "layout", page, http.StatusOK)
 }
 
 func (s *server) stackRuns(w http.ResponseWriter, r *http.Request) {
 	types, err := parseTypes(r.URL.Query().Get("types"))
 	if err != nil {
-		s.renderError(w, http.StatusBadRequest, "Bad request", "Unknown run type.")
+		s.renderError(w, r, http.StatusBadRequest, "Bad request", "Unknown run type.")
 		return
 	}
 	page, err := s.loadStackPage(r.Context(), r.PathValue("ns"), r.PathValue("name"), nil,
 		types)
 	if err != nil {
-		s.storeError(w, err)
+		s.storeError(w, r, err)
 		return
 	}
-	s.render(w, "stack", "run-rows", page, http.StatusOK)
+	s.render(w, r, "stack", "run-rows", page, http.StatusOK)
 }
 
 func (s *server) loadStackPage(ctx context.Context, ns, name string, before *store.Cursor,
@@ -250,37 +263,37 @@ func (s *server) loadStackPage(ctx context.Context, ns, name string, before *sto
 }
 
 func (s *server) runPage(w http.ResponseWriter, r *http.Request) {
-	s.withRun(w, r, func(run store.Run) { s.render(w, "run", "layout", run, http.StatusOK) })
+	s.withRun(w, r, func(run store.Run) { s.render(w, r, "run", "layout", run, http.StatusOK) })
 }
 
 func (s *server) runRow(w http.ResponseWriter, r *http.Request) {
-	s.withRun(w, r, func(run store.Run) { s.render(w, "stack", "run-row", run, http.StatusOK) })
+	s.withRun(w, r, func(run store.Run) { s.render(w, r, "stack", "run-row", run, http.StatusOK) })
 }
 
 func (s *server) runHeader(w http.ResponseWriter, r *http.Request) {
-	s.withRun(w, r, func(run store.Run) { s.render(w, "run", "run-header", run, http.StatusOK) })
+	s.withRun(w, r, func(run store.Run) { s.render(w, r, "run", "run-header", run, http.StatusOK) })
 }
 
 func (s *server) withRun(w http.ResponseWriter, r *http.Request, fn func(store.Run)) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
-		s.renderError(w, http.StatusNotFound, "Not found", "No such run.")
+		s.renderError(w, r, http.StatusNotFound, "Not found", "No such run.")
 		return
 	}
 	run, err := s.store.GetRun(r.Context(), id)
 	if err != nil {
-		s.storeError(w, err)
+		s.storeError(w, r, err)
 		return
 	}
 	fn(run)
 }
 
-func (s *server) storeError(w http.ResponseWriter, err error) {
+func (s *server) storeError(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, store.ErrNotFound) {
-		s.renderError(w, http.StatusNotFound, "Not found", "It may have been deleted or pruned.")
+		s.renderError(w, r, http.StatusNotFound, "Not found", "It may have been deleted or pruned.")
 		return
 	}
 	s.log.Error().Err(err).Msg("store read")
-	s.renderError(w, http.StatusInternalServerError, "Something went wrong",
+	s.renderError(w, r, http.StatusInternalServerError, "Something went wrong",
 		"The database could not be read. Try again shortly.")
 }
