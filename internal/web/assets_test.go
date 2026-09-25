@@ -87,3 +87,21 @@ func TestLayoutHasBrandBar(t *testing.T) {
 		t.Error("layout lacks the brand bar")
 	}
 }
+
+func TestAppJS(t *testing.T) {
+	srv := newServer(t, sampleReader(), nil)
+	resp, body := get(t, srv, "/static/app.js")
+	if resp.StatusCode != 200 || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/javascript") {
+		t.Fatalf("status %d type %q", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	for _, want := range []string{"data-copy", "navigator.clipboard"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("app.js lacks %s", want)
+		}
+	}
+	for _, banned := range []string{"eval(", "innerHTML", "new Function"} {
+		if strings.Contains(body, banned) {
+			t.Errorf("app.js uses %s", banned)
+		}
+	}
+}

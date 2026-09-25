@@ -88,6 +88,13 @@
   @media (prefers-reduced-motion: reduce) { .pulse-run { animation: none; } }
   @keyframes pou-pulse { 50% { opacity: .35; } }
   .commit-approx { text-decoration: underline dotted; text-underline-offset: 3px; }
+  .copy-btn {
+    @apply rounded border border-line px-1.5 text-[11px] text-muted hover:text-ink;
+  }
+  .message-failed { color: #9b1c14; border-color: rgb(234 67 53 / .35); background: rgb(234 67 53 / .06); }
+  @media (prefers-color-scheme: dark) {
+    .message-failed { color: #f3c4c4; border-color: #3b1d1d; background: #0b0d11; }
+  }
 
   /* LEGACY: classes of the pre-redesign templates, kept until Tasks 4 to 6 rebuild each page.
      Removed in Task 7. */

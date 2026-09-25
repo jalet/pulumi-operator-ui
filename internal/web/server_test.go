@@ -496,3 +496,31 @@ func TestListLayoutScrolls(t *testing.T) {
 		t.Error("stack table is not in a horizontally scrolling panel")
 	}
 }
+
+func TestRunPageLayout(t *testing.T) {
+	r := sampleReader()
+	r.runs[0].State = store.RunStateFailed
+	r.runs[0].Message = strings.Repeat("x", 300) // one long unbroken token
+	srv := newServer(t, r, nil)
+	_, body := get(t, srv, "/runs/7")
+	for _, want := range []string{
+		`href="/stacks/ns/app"`,
+		`<span class="pill tone-bad">`,
+		">Commit<", ">Started<", ">Duration<", ">Stack<",
+		`<button type="button" class="copy-btn" data-copy="abc">Copy</button>`,
+		`whitespace-pre-wrap break-words`,
+		`message-failed`,
+		"appear here with log capture",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("run page lacks %s", want)
+		}
+	}
+}
+
+func TestRunPageSucceededHasNoFailedTint(t *testing.T) {
+	srv := newServer(t, sampleReader(), nil)
+	if _, body := get(t, srv, "/runs/7"); strings.Contains(body, "message-failed") {
+		t.Fatal("succeeded run has the failed tint")
+	}
+}
