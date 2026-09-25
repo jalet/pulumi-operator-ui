@@ -69,6 +69,10 @@ SELECT runs.id, runs.namespace, runs.update_name, COALESCE(runs.uid, ''), runs.s
        runs.type, runs.commit, runs.commit_source, runs.state, runs.message, runs.started_at,
        runs.ended_at, runs.observed_at, c.counts, runs.log_status, runs.log_truncated,
        runs.exec_kind, runs.exec_agent, runs.title, runs.vcs_repo, COALESCE(st.repo_url, ''),
+       runs.seq,
+       COALESCE((SELECT jsonb_agg(jsonb_build_object('type', r->>'type', 'name', r->>'name'))
+                 FROM (SELECT r FROM jsonb_array_elements(lc.resources) r LIMIT 3) x), '[]'),
+       COALESCE(jsonb_array_length(lc.resources), 0),
        lc.counts, `
 	_runSelectFrom = `
 FROM runs
@@ -220,18 +224,20 @@ func (s *Store) GetRun(ctx context.Context, id int64) (Run, error) {
 
 func scanRun(row pgx.CollectableRow) (Run, error) {
 	var r Run
-	var counts, logCounts, resources []byte
+	var counts, logCounts, resources, summary []byte
 	err := row.Scan(&r.ID, &r.Namespace, &r.UpdateName, &r.UID, &r.StackName, &r.Type,
 		&r.Commit, &r.CommitSource, &r.State, &r.Message, &r.StartedAt, &r.EndedAt,
 		&r.ObservedAt, &counts, &r.LogStatus, &r.LogTruncated, &r.ExecKind, &r.ExecAgent,
-		&r.Title, &r.VCSRepo, &r.StackRepoURL, &logCounts, &resources)
+		&r.Title, &r.VCSRepo, &r.StackRepoURL, &r.Seq, &summary, &r.ResourceTotal, &logCounts,
+		&resources)
 	if err != nil {
 		return r, err
 	}
 	for _, f := range []struct {
 		raw  []byte
 		into any
-	}{{counts, &r.Changes}, {logCounts, &r.LogChanges}, {resources, &r.Resources}} {
+	}{{counts, &r.Changes}, {logCounts, &r.LogChanges}, {resources, &r.Resources},
+		{summary, &r.Summary}} {
 		if f.raw == nil {
 			continue
 		}
@@ -241,6 +247,9 @@ func scanRun(row pgx.CollectableRow) (Run, error) {
 	}
 	if len(r.Resources) == 0 {
 		r.Resources = nil
+	}
+	if len(r.Summary) == 0 {
+		r.Summary = nil
 	}
 	return r, nil
 }

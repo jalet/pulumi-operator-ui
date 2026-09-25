@@ -70,6 +70,12 @@ const (
 	LogStatusUnavailable = "unavailable"
 )
 
+// ResourceRef names one changed resource for summaries.
+type ResourceRef struct {
+	Type string `json:"type"`
+	Name string `json:"name"`
+}
+
 // LogResource is one changed resource parsed from the engine log.
 type LogResource struct {
 	Op        string `json:"op"`
@@ -101,29 +107,32 @@ type Stack struct {
 
 // Run is one row of the runs table.
 type Run struct {
-	ID           int64
-	Namespace    string
-	UpdateName   string
-	UID          string // "" when backfilled from Stack.status.lastUpdate
-	StackName    string
-	Type         RunType
-	Commit       string
-	CommitSource CommitSource
-	State        RunState
-	Message      string
-	StartedAt    *time.Time
-	EndedAt      *time.Time
-	ObservedAt   time.Time
-	Changes      map[string]int64 // change counts from S3 history; nil when unknown
-	LogStatus    string           // runs.log_status
-	LogChanges   map[string]int64 // change counts from the engine log; nil when not captured
-	Resources    []LogResource    // changed resources from the engine log
-	LogTruncated bool             // the engine log result hit a cap and is incomplete
-	ExecKind     string           // exec.kind from S3 history: "cli", "auto.local", ...
-	ExecAgent    string           // exec.agent from S3 history, may be ""
-	Title        string           // commit subject, for runs without an Update
-	VCSRepo      string           // "<host>/<owner>/<repo>" from S3 history
-	StackRepoURL string           // stacks.repo_url, joined for commit links
+	ID            int64
+	Namespace     string
+	UpdateName    string
+	UID           string // "" when backfilled from Stack.status.lastUpdate
+	StackName     string
+	Type          RunType
+	Commit        string
+	CommitSource  CommitSource
+	State         RunState
+	Message       string
+	StartedAt     *time.Time
+	EndedAt       *time.Time
+	ObservedAt    time.Time
+	Changes       map[string]int64 // change counts from S3 history; nil when unknown
+	LogStatus     string           // runs.log_status
+	LogChanges    map[string]int64 // change counts from the engine log; nil when not captured
+	Resources     []LogResource    // changed resources from the engine log
+	LogTruncated  bool             // the engine log result hit a cap and is incomplete
+	ExecKind      string           // exec.kind from S3 history: "cli", "auto.local", ...
+	ExecAgent     string           // exec.agent from S3 history, may be ""
+	Title         string           // commit subject, for runs without an Update
+	VCSRepo       string           // "<host>/<owner>/<repo>" from S3 history
+	StackRepoURL  string           // stacks.repo_url, joined for commit links
+	Seq           *int64           // position in the state bucket's history; nil when unknown
+	Summary       []ResourceRef    // first three changed resources from the engine log
+	ResourceTotal int              // how many resources the engine log listed
 }
 
 // Publisher receives a notification after each committed change.

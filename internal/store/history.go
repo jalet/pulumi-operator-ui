@@ -34,6 +34,7 @@ type HistoryEntry struct {
 	Counts                            map[string]int64
 	ExecKind, ExecAgent, Message      string // origin and commit subject
 	VCSRepo                           string // "<host>/<owner>/<repo>"
+	Seq                               int64  // position among history keys; 0 = unknown
 	// SeenAt is set when read back; InsertHistory takes it as an argument instead.
 	SeenAt time.Time
 }
@@ -58,30 +59,34 @@ func (s *Store) S3Stacks(ctx context.Context) ([]S3Stack, error) {
 	return out, nil
 }
 
-// HistoryCursor returns the last processed key for bucket and prefix, or "" when none: the
-// StartAfter position for the next listing.
-func (s *Store) HistoryCursor(ctx context.Context, bucket, prefix string) (string, error) {
+// HistoryCursor returns the last processed key for bucket and prefix and how many history
+// keys were listed up to it; "" and 0 when none.
+func (s *Store) HistoryCursor(ctx context.Context, bucket, prefix string) (string, int64, error) {
 	var key string
-	err := s.pool.QueryRow(ctx, `SELECT last_key FROM s3_cursors WHERE bucket = $1 AND prefix = $2`,
-		bucket, prefix).Scan(&key)
+	var n int64
+	err := s.pool.QueryRow(ctx, `SELECT last_key, key_count FROM s3_cursors
+		WHERE bucket = $1 AND prefix = $2`, bucket, prefix).Scan(&key, &n)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", nil
+		return "", 0, nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("history cursor: %w", err)
+		return "", 0, fmt.Errorf("history cursor: %w", err)
 	}
-	return key, nil
+	return key, n, nil
 }
 
-// SetHistoryCursor records key as processed for bucket and prefix. The cursor only moves
-// forward, so a late or repeated call can never make the poller re-read keys.
-func (s *Store) SetHistoryCursor(ctx context.Context, bucket, prefix, key string,
+// SetHistoryCursor records key as processed with count history keys listed up to it. The
+// cursor only moves forward, so a late or repeated call never re-reads or renumbers keys.
+func (s *Store) SetHistoryCursor(ctx context.Context, bucket, prefix, key string, count int64,
 	at time.Time) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO s3_cursors (bucket, prefix, last_key, updated_at) VALUES ($1, $2, $3, $4)
+		INSERT INTO s3_cursors (bucket, prefix, last_key, key_count, updated_at)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (bucket, prefix) DO UPDATE SET
-		    last_key = GREATEST(s3_cursors.last_key, EXCLUDED.last_key),
-		    updated_at = EXCLUDED.updated_at`, bucket, prefix, key, at)
+		    last_key   = GREATEST(s3_cursors.last_key, EXCLUDED.last_key),
+		    key_count  = CASE WHEN EXCLUDED.last_key > s3_cursors.last_key
+		                      THEN EXCLUDED.key_count ELSE s3_cursors.key_count END,
+		    updated_at = EXCLUDED.updated_at`, bucket, prefix, key, count, at)
 	if err != nil {
 		return fmt.Errorf("set history cursor: %w", err)
 	}
@@ -108,8 +113,8 @@ func (s *Store) InsertHistory(ctx context.Context, e HistoryEntry, seenAt time.T
 	err = s.pool.QueryRow(ctx, `
 		INSERT INTO s3_history (key, bucket, namespace, stack_name, type, state, started_at,
 		                        ended_at, commit, counts, seen_at, exec_kind, exec_agent,
-		                        message, vcs_repo)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		                        message, vcs_repo, seq)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		ON CONFLICT (key) DO UPDATE SET
 		    exec_kind  = CASE WHEN s3_history.exec_kind = ''  THEN EXCLUDED.exec_kind
 		                      ELSE s3_history.exec_kind END,
@@ -118,10 +123,11 @@ func (s *Store) InsertHistory(ctx context.Context, e HistoryEntry, seenAt time.T
 		    message    = CASE WHEN s3_history.message = ''    THEN EXCLUDED.message
 		                      ELSE s3_history.message END,
 		    vcs_repo   = CASE WHEN s3_history.vcs_repo = ''   THEN EXCLUDED.vcs_repo
-		                      ELSE s3_history.vcs_repo END
+		                      ELSE s3_history.vcs_repo END,
+		    seq        = COALESCE(s3_history.seq, EXCLUDED.seq)
 		RETURNING (xmax = 0), run_id`,
 		e.Key, e.Bucket, e.Namespace, e.StackName, e.Type, e.State, e.StartedAt, e.EndedAt,
-		e.Commit, counts, seenAt, e.ExecKind, e.ExecAgent, e.Message, e.VCSRepo).
+		e.Commit, counts, seenAt, e.ExecKind, e.ExecAgent, e.Message, e.VCSRepo, seqArg(e.Seq)).
 		Scan(&inserted, &runID)
 	if err != nil {
 		return false, fmt.Errorf("insert history %s: %w", e.Key, err)
@@ -148,8 +154,9 @@ func enrichRun(ctx context.Context, db dbExec, runID int64, e HistoryEntry) erro
 		    exec_kind  = CASE WHEN exec_kind = ''  THEN $2 ELSE exec_kind END,
 		    exec_agent = CASE WHEN exec_agent = '' THEN $3 ELSE exec_agent END,
 		    vcs_repo   = CASE WHEN vcs_repo = ''   THEN $4 ELSE vcs_repo END,
-		    title      = CASE WHEN update_name LIKE 's3:%' AND title = '' THEN $5 ELSE title END
-		WHERE id = $1`, runID, e.ExecKind, e.ExecAgent, e.VCSRepo, e.Message)
+		    title      = CASE WHEN update_name LIKE 's3:%' AND title = '' THEN $5 ELSE title END,
+		    seq        = COALESCE(seq, $6)
+		WHERE id = $1`, runID, e.ExecKind, e.ExecAgent, e.VCSRepo, e.Message, seqArg(e.Seq))
 	if err != nil {
 		return fmt.Errorf("enrich run %d: %w", runID, err)
 	}
@@ -194,7 +201,7 @@ func (s *Store) LinkHistory(ctx context.Context, now time.Time) (LinkResult, err
 	var res LinkResult
 	rows, err := s.pool.Query(ctx, `
 		SELECT key, bucket, namespace, stack_name, type, state, started_at, ended_at, commit, counts,
-		       seen_at, exec_kind, exec_agent, message, vcs_repo
+		       seen_at, exec_kind, exec_agent, message, vcs_repo, COALESCE(seq, 0)
 		FROM s3_history WHERE link_state = 'pending' ORDER BY ended_at, key LIMIT $1`,
 		linkBatchRowsMax)
 	if err != nil {
@@ -371,6 +378,14 @@ func scanHistoryEntry(row pgx.CollectableRow) (HistoryEntry, error) {
 	var e HistoryEntry
 	err := row.Scan(&e.Key, &e.Bucket, &e.Namespace, &e.StackName, &e.Type, &e.State,
 		&e.StartedAt, &e.EndedAt, &e.Commit, &e.Counts, &e.SeenAt, &e.ExecKind, &e.ExecAgent,
-		&e.Message, &e.VCSRepo)
+		&e.Message, &e.VCSRepo, &e.Seq)
 	return e, err
+}
+
+// seqArg maps an unknown sequence number (0) to NULL.
+func seqArg(n int64) *int64 {
+	if n == 0 {
+		return nil
+	}
+	return &n
 }

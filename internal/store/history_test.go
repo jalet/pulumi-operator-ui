@@ -74,19 +74,19 @@ func TestInsertHistoryIdempotent(t *testing.T) {
 func TestHistoryCursorIsPerPrefix(t *testing.T) {
 	s, _ := newTestStore(t)
 	ctx := t.Context()
-	if got, err := s.HistoryCursor(ctx, "b", "p1/"); err != nil || got != "" {
+	if got, _, err := s.HistoryCursor(ctx, "b", "p1/"); err != nil || got != "" {
 		t.Fatalf("empty cursor = %q, %v", got, err)
 	}
-	must(t, s.SetHistoryCursor(ctx, "b", "p1/", "p1/dev-200.history.json", _t0))
-	must(t, s.SetHistoryCursor(ctx, "b", "p2/", "p2/dev-300.history.json", _t0))
-	must(t, s.SetHistoryCursor(ctx, "other", "p1/", "p1/dev-900.history.json", _t0))
+	must(t, s.SetHistoryCursor(ctx, "b", "p1/", "p1/dev-200.history.json", 1, _t0))
+	must(t, s.SetHistoryCursor(ctx, "b", "p2/", "p2/dev-300.history.json", 1, _t0))
+	must(t, s.SetHistoryCursor(ctx, "other", "p1/", "p1/dev-900.history.json", 1, _t0))
 	for _, tt := range []struct{ bucket, prefix, want string }{
 		{"b", "p1/", "p1/dev-200.history.json"},
 		{"b", "p2/", "p2/dev-300.history.json"},
 		{"other", "p1/", "p1/dev-900.history.json"},
 		{"b", "p3/", ""},
 	} {
-		if got, err := s.HistoryCursor(ctx, tt.bucket, tt.prefix); err != nil || got != tt.want {
+		if got, _, err := s.HistoryCursor(ctx, tt.bucket, tt.prefix); err != nil || got != tt.want {
 			t.Errorf("HistoryCursor(%s, %s) = %q, %v; want %q", tt.bucket, tt.prefix, got, err, tt.want)
 		}
 	}
@@ -95,9 +95,9 @@ func TestHistoryCursorIsPerPrefix(t *testing.T) {
 func TestHistoryCursorOnlyAdvances(t *testing.T) {
 	s, _ := newTestStore(t)
 	ctx := t.Context()
-	must(t, s.SetHistoryCursor(ctx, "b", "p/", "p/dev-200.history.json", _t0))
-	must(t, s.SetHistoryCursor(ctx, "b", "p/", "p/dev-100.history.json", _t0))
-	if got, _ := s.HistoryCursor(ctx, "b", "p/"); got != "p/dev-200.history.json" {
+	must(t, s.SetHistoryCursor(ctx, "b", "p/", "p/dev-200.history.json", 1, _t0))
+	must(t, s.SetHistoryCursor(ctx, "b", "p/", "p/dev-100.history.json", 1, _t0))
+	if got, _, _ := s.HistoryCursor(ctx, "b", "p/"); got != "p/dev-200.history.json" {
 		t.Fatalf("cursor moved back to %q", got)
 	}
 }
@@ -111,11 +111,11 @@ func TestHistoryCursorSurvivesPrune(t *testing.T) {
 	if _, err := s.InsertHistory(ctx, old, now); err != nil {
 		t.Fatal(err)
 	}
-	must(t, s.SetHistoryCursor(ctx, "b", "p/", old.Key, now))
+	must(t, s.SetHistoryCursor(ctx, "b", "p/", old.Key, 1, now))
 	if _, err := s.Prune(ctx, now, _runRetention, _authRetention); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := s.HistoryCursor(ctx, "b", "p/"); got != old.Key {
+	if got, _, _ := s.HistoryCursor(ctx, "b", "p/"); got != old.Key {
 		t.Fatalf("cursor after prune = %q", got)
 	}
 }

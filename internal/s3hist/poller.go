@@ -50,8 +50,9 @@ type S3API interface {
 // Store is the part of the store the poller uses.
 type Store interface {
 	S3Stacks(ctx context.Context) ([]store.S3Stack, error)
-	HistoryCursor(ctx context.Context, bucket, prefix string) (string, error)
-	SetHistoryCursor(ctx context.Context, bucket, prefix, key string, at time.Time) error
+	HistoryCursor(ctx context.Context, bucket, prefix string) (string, int64, error)
+	SetHistoryCursor(ctx context.Context, bucket, prefix, key string, count int64,
+		at time.Time) error
 	InsertHistory(ctx context.Context, e store.HistoryEntry, seenAt time.Time) (bool, error)
 	LinkHistory(ctx context.Context, now time.Time) (store.LinkResult, error)
 	SetStackS3Status(ctx context.Context, namespace, name, errMsg string, at time.Time) error
@@ -211,7 +212,7 @@ type pollError struct {
 // the failed key next tick and the page cap simply resumes next tick.
 func (p *Poller) pollTarget(ctx, s3ctx context.Context, client S3API, t Target,
 	now time.Time) *pollError {
-	cursor, err := p.o.Store.HistoryCursor(ctx, t.Bucket, t.Prefix)
+	cursor, count, err := p.o.Store.HistoryCursor(ctx, t.Bucket, t.Prefix)
 	if err != nil {
 		return &pollError{"db", err}
 	}
@@ -220,7 +221,7 @@ func (p *Poller) pollTarget(ctx, s3ctx context.Context, client S3API, t Target,
 		if last == cursor {
 			return nil
 		}
-		if err := p.o.Store.SetHistoryCursor(ctx, t.Bucket, t.Prefix, last, now); err != nil {
+		if err := p.o.Store.SetHistoryCursor(ctx, t.Bucket, t.Prefix, last, count, now); err != nil {
 			return &pollError{"db", err}
 		}
 		cursor = last

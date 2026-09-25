@@ -107,6 +107,7 @@ type fakeStore struct {
 	mu        sync.Mutex
 	stacks    []store.S3Stack
 	cursors   map[string]string // bucket|prefix -> key
+	counts    map[string]int64  // bucket|prefix -> history keys listed
 	inserted  []store.HistoryEntry
 	statuses  map[string]string // ns/name -> error message
 	links     []store.LinkResult
@@ -114,22 +115,25 @@ type fakeStore struct {
 }
 
 func newFakeStore(stacks ...store.S3Stack) *fakeStore {
-	return &fakeStore{stacks: stacks, cursors: map[string]string{}, statuses: map[string]string{}}
+	return &fakeStore{stacks: stacks, cursors: map[string]string{}, counts: map[string]int64{},
+		statuses: map[string]string{}}
 }
 
 func (f *fakeStore) S3Stacks(context.Context) ([]store.S3Stack, error) { return f.stacks, nil }
 
-func (f *fakeStore) HistoryCursor(_ context.Context, bucket, prefix string) (string, error) {
+func (f *fakeStore) HistoryCursor(_ context.Context, bucket, prefix string) (string, int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.cursors[bucket+"|"+prefix], nil
+	return f.cursors[bucket+"|"+prefix], f.counts[bucket+"|"+prefix], nil
 }
 
-func (f *fakeStore) SetHistoryCursor(_ context.Context, bucket, prefix, key string, _ time.Time) error {
+func (f *fakeStore) SetHistoryCursor(_ context.Context, bucket, prefix, key string, count int64,
+	_ time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if key > f.cursors[bucket+"|"+prefix] {
 		f.cursors[bucket+"|"+prefix] = key
+		f.counts[bucket+"|"+prefix] = count
 	}
 	return nil
 }
