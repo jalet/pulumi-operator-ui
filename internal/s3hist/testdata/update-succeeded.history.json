@@ -1,0 +1,17 @@
+{
+  "kind": "update",
+  "startTime": 1790239727,
+  "message": "deploy",
+  "environment": {
+    "git.author": "A Person",
+    "git.author.email": "person@example.com",
+    "git.committer.email": "person@example.com",
+    "git.head": "0123456789abcdef0123456789abcdef01234567",
+    "pulumi.version": "v3.200.0"
+  },
+  "config": {"proj:token": {"secure": "v1:AAAA"}, "aws:region": "eu-north-1"},
+  "version": 0,
+  "result": "succeeded",
+  "endTime": 1790239732,
+  "resourceChanges": {"create": 2, "delete": 1, "same": 108}
+}

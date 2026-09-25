@@ -1,0 +1,48 @@
+// Package s3hist reads Pulumi's DIY-backend update history from S3. It is only constructed
+// when S3 history is enabled, so nothing loads AWS configuration otherwise.
+package s3hist
+
+import (
+	"errors"
+	"fmt"
+	"net/url"
+	"path"
+	"strings"
+
+	"github.com/jalet/pulumi-operator-ui/internal/store"
+)
+
+// Errors for Stacks and files this package does not read.
+var (
+	ErrNotS3     = errors.New("backend is not s3://")
+	ErrEndpoint  = errors.New("custom S3 endpoints are not supported")
+	ErrBadKind   = errors.New("unsupported history kind")
+	ErrBadResult = errors.New("unsupported history result")
+	ErrTooLarge  = errors.New("history file too large")
+)
+
+// Target is where one Stack's history lives.
+type Target struct {
+	Namespace, Stack string // the Kubernetes Stack
+	Bucket, Region   string // Region "" means the SDK default
+	Prefix           string // "<prefix>/.pulumi/history/<project>/<stack>/", no leading slash
+}
+
+// TargetFor derives a Stack's history location from its backend URL, for example
+// s3://bucket/pulumi/example?region=eu-north-1.
+func TargetFor(s store.S3Stack) (Target, error) {
+	u, err := url.Parse(s.BackendURL)
+	if err != nil || u.Scheme != "s3" {
+		return Target{}, ErrNotS3
+	}
+	if u.Host == "" {
+		return Target{}, fmt.Errorf("%w: empty bucket", ErrNotS3)
+	}
+	q := u.Query()
+	if q.Get("endpoint") != "" {
+		return Target{}, ErrEndpoint
+	}
+	prefix := path.Join(strings.Trim(u.Path, "/"), ".pulumi/history", s.Project, s.PulumiStack)
+	return Target{Namespace: s.Namespace, Stack: s.Name, Bucket: u.Host,
+		Region: q.Get("region"), Prefix: strings.TrimPrefix(prefix, "/") + "/"}, nil
+}
