@@ -121,6 +121,7 @@ type Options struct {
 // Open connects with retry, applies migrations and returns a ready store.
 func Open(ctx context.Context, o Options) (*Store, error) {
 	assert(o.Pub != nil, "store publisher")
+	registerMetrics()
 	cfg, err := pgxpool.ParseConfig(o.URL)
 	if err != nil {
 		return nil, errors.New("parse database url: invalid") // never echo the URL
