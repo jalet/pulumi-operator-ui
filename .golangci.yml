@@ -1,0 +1,30 @@
+version: "2"
+
+linters:
+  enable:
+    - bodyclose
+    - contextcheck
+    - errorlint
+    - gocritic
+    - gosec
+    - lll
+    - nilnil
+    - noctx
+    - revive
+  settings:
+    lll:
+      line-length: 99
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - lll
+
+formatters:
+  enable:
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/jalet/pulumi-operator-ui

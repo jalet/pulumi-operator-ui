@@ -1,0 +1,5 @@
+/bin/
+/dist/
+*.test
+/.envtest/
+/.superpowers/

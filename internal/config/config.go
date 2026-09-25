@@ -1,0 +1,166 @@
+// Package config parses and validates the command-line configuration.
+package config
+
+import (
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"net"
+	"net/url"
+	"strings"
+	"time"
+)
+
+const (
+	_retentionFloor    = time.Hour
+	_sessionAgeFloor   = 5 * time.Minute
+	_sessionAgeCeiling = 24 * time.Hour
+)
+
+// OIDC holds the identity provider settings.
+type OIDC struct {
+	Issuer           string
+	ClientID         string
+	ClientSecretFile string
+	RedirectURL      string
+	CAFile           string
+}
+
+// Config is the validated process configuration.
+type Config struct {
+	Namespaces         []string // empty = all
+	HTTPAddr           string
+	MetricsAddr        string
+	DatabaseURL        string
+	DatabaseCAFile     string
+	OIDC               OIDC
+	AuthClaim          string
+	AuthAllowed        []string
+	SessionKeyFile     string
+	SessionPrevKeyFile string
+	SessionAgeMax      time.Duration
+	RetentionRuns      time.Duration
+	RetentionAuth      time.Duration
+}
+
+// Parse reads flags from args (without argv[0]); getenv supplies the DATABASE_URL fallback.
+// All validation errors are joined so the operator sees every problem at once.
+func Parse(args []string, getenv func(string) string) (Config, error) {
+	var (
+		c          Config
+		namespaces string
+		allowed    string
+	)
+	fs := flag.NewFlagSet("pulumi-operator-ui", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.StringVar(&namespaces, "namespaces", "", "comma-separated namespaces to watch; empty = all")
+	fs.StringVar(&c.HTTPAddr, "http-addr", ":8080", "listen address for the UI")
+	fs.StringVar(&c.MetricsAddr, "metrics-addr", ":9090", "listen address for /metrics")
+	fs.StringVar(&c.DatabaseURL, "database-url", "", "PostgreSQL URL; falls back to DATABASE_URL")
+	fs.StringVar(&c.DatabaseCAFile, "database.ca-file", "", "CA bundle for the database TLS")
+	fs.StringVar(&c.OIDC.Issuer, "oidc.issuer", "", "OIDC issuer URL")
+	fs.StringVar(&c.OIDC.ClientID, "oidc.client-id", "", "OIDC client ID")
+	fs.StringVar(&c.OIDC.ClientSecretFile, "oidc.client-secret-file", "",
+		"file with the client secret")
+	fs.StringVar(&c.OIDC.RedirectURL, "oidc.redirect-url", "", "OIDC redirect URL")
+	fs.StringVar(&c.OIDC.CAFile, "oidc.ca-file", "", "extra CA bundle for the IdP")
+	fs.StringVar(&c.AuthClaim, "auth.claim", "groups", "claim checked against the allowlist")
+	fs.StringVar(&allowed, "auth.allowed", "", "comma-separated allowed claim values")
+	fs.StringVar(&c.SessionKeyFile, "session.key-file", "", "file with the session HMAC key")
+	fs.StringVar(&c.SessionPrevKeyFile, "session.previous-key-file", "",
+		"file with the previous session key, accepted for verification")
+	fs.DurationVar(&c.SessionAgeMax, "session.max-age", 8*time.Hour, "absolute session lifetime")
+	fs.DurationVar(&c.RetentionRuns, "retention", 4320*time.Hour, "retention for runs")
+	fs.DurationVar(&c.RetentionAuth, "auth-retention", 8760*time.Hour, "retention for auth events")
+	if err := fs.Parse(args); err != nil {
+		return Config{}, fmt.Errorf("parse flags: %w", err)
+	}
+	c.Namespaces = splitList(namespaces)
+	c.AuthAllowed = splitList(allowed)
+	if c.DatabaseURL == "" {
+		c.DatabaseURL = getenv("DATABASE_URL")
+	}
+	if err := c.validate(); err != nil {
+		return Config{}, err
+	}
+	return c, nil
+}
+
+func (c *Config) validate() error {
+	var errs []error
+	required := []struct{ flag, value string }{
+		{"--database-url (or DATABASE_URL)", c.DatabaseURL},
+		{"--oidc.issuer", c.OIDC.Issuer},
+		{"--oidc.client-id", c.OIDC.ClientID},
+		{"--oidc.client-secret-file", c.OIDC.ClientSecretFile},
+		{"--oidc.redirect-url", c.OIDC.RedirectURL},
+		{"--auth.claim", c.AuthClaim},
+		{"--session.key-file", c.SessionKeyFile},
+	}
+	for _, r := range required {
+		if r.value == "" {
+			errs = append(errs, fmt.Errorf("%s is required", r.flag))
+		}
+	}
+	if len(c.AuthAllowed) == 0 {
+		errs = append(errs, errors.New("--auth.allowed is required"))
+	}
+	if c.RetentionRuns < _retentionFloor {
+		errs = append(errs, errors.New("--retention must be at least 1h"))
+	}
+	if c.RetentionAuth < _retentionFloor {
+		errs = append(errs, errors.New("--auth-retention must be at least 1h"))
+	}
+	if c.SessionAgeMax < _sessionAgeFloor || c.SessionAgeMax > _sessionAgeCeiling {
+		errs = append(errs, errors.New("--session.max-age must be between 5m and 24h"))
+	}
+	if c.OIDC.RedirectURL != "" {
+		errs = append(errs, validateRedirectURL(c.OIDC.RedirectURL))
+	}
+	if c.DatabaseURL != "" {
+		errs = append(errs, validateDatabaseURL(c.DatabaseURL))
+	}
+	return errors.Join(errs...)
+}
+
+func validateRedirectURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return errors.New("--oidc.redirect-url: invalid")
+	}
+	if u.Scheme == "https" || (u.Scheme == "http" && isLocalhost(u.Hostname())) {
+		return nil
+	}
+	return errors.New("--oidc.redirect-url must be https (http only for localhost)")
+}
+
+// validateDatabaseURL never includes the URL in its errors: it may carry a password.
+func validateDatabaseURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return errors.New("--database-url: invalid")
+	}
+	if u.Query().Get("sslmode") == "disable" && !isLocalhost(u.Hostname()) {
+		return errors.New("--database-url: sslmode=disable is only allowed for localhost")
+	}
+	return nil
+}
+
+func isLocalhost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func splitList(s string) []string {
+	var out []string
+	for part := range strings.SplitSeq(s, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}

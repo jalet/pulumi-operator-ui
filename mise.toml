@@ -1,0 +1,37 @@
+[tools]
+go = "1.26.7"
+golangci-lint = "2.10.1"
+ko = "0.19.1"
+helm = "4.3.0"
+"go:golang.org/x/vuln/cmd/govulncheck" = "latest"
+"go:sigs.k8s.io/controller-runtime/tools/setup-envtest" = "latest"
+
+[env]
+ENVTEST_K8S_VERSION = "1.34.x"
+
+[tasks.fmt]
+run = "golangci-lint fmt"
+
+[tasks.lint]
+run = "golangci-lint run ./..."
+
+[tasks.test]
+run = '''
+export KUBEBUILDER_ASSETS="$(setup-envtest use "$ENVTEST_K8S_VERSION" -p path)"
+go test -race -shuffle=on ./...
+'''
+
+[tasks.vuln]
+run = "govulncheck ./..."
+
+[tasks."chart:test"]
+run = '''
+helm lint --strict charts/pulumi-operator-ui -f test/chart/testdata/minimal.yaml
+go test ./test/chart/...
+'''
+
+[tasks.build]
+run = "ko build --local ./cmd/pulumi-operator-ui"
+
+[tasks.devidp]
+run = "go run ./hack/devidp"
