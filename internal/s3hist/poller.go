@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -311,21 +312,25 @@ func (p *Poller) fail(ctx context.Context, s store.S3Stack, reason string, err e
 	}
 }
 
+// _identity matches what AWS error text says about the caller: ARNs and 12-digit account IDs.
+var _identity = regexp.MustCompile(`arn:aws[\w-]*:[^\s"',]+|\b\d{12}\b`)
+
 // summarize turns an error into a short message for the stack page. SDK errors carry no
-// credentials, but they can be long, so known codes get a plain phrase.
+// credentials, but they can be long and AccessDenied text names the caller's ARN and
+// account, so known codes get a plain phrase and anything else has identities removed.
 func summarize(err error) string {
 	var api smithy.APIError
 	if errors.As(err, &api) {
 		switch api.ErrorCode() {
 		case "AccessDenied", "AllAccessDisabled":
-			return "access denied: " + api.ErrorMessage()
+			return "access denied: check the reader's IAM policy for this bucket and prefix"
 		case "NoSuchBucket":
 			return "bucket not found"
 		case "InvalidAccessKeyId", "SignatureDoesNotMatch", "ExpiredToken":
 			return "invalid AWS credentials"
 		}
 	}
-	msg := err.Error()
+	msg := _identity.ReplaceAllString(err.Error(), "[redacted]")
 	if len(msg) > 200 {
 		msg = msg[:200]
 	}

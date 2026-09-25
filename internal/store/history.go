@@ -91,6 +91,9 @@ func (s *Store) InsertHistory(ctx context.Context, e HistoryEntry, seenAt time.T
 	if e.Key == "" || e.Type == "" || e.State == "" || e.Namespace == "" || e.StackName == "" {
 		panic("invariant violated: incomplete history entry")
 	}
+	if e.Counts == nil {
+		e.Counts = map[string]int64{} // a file without resourceChanges: {} rather than null
+	}
 	counts, err := json.Marshal(e.Counts)
 	if err != nil {
 		panic("invariant violated: marshal counts: " + err.Error())

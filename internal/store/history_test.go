@@ -363,3 +363,18 @@ func TestImportWaitsForSeenGrace(t *testing.T) {
 		t.Fatalf("seen 17m ago: %+v, want imported", got)
 	}
 }
+
+func TestInsertHistoryWithoutCountsStoresEmptyObject(t *testing.T) {
+	s, _ := newTestStore(t)
+	e := entry("p/.pulumi/history/proj/dev/dev-9.history.json", RunTypeUp, RunStateSucceeded, _t0)
+	e.Counts = nil
+	if _, err := s.InsertHistory(t.Context(), e, _t0); err != nil {
+		t.Fatal(err)
+	}
+	var counts string
+	must(t, s.pool.QueryRow(t.Context(), `SELECT counts::text FROM s3_history WHERE key = $1`,
+		e.Key).Scan(&counts))
+	if counts != "{}" {
+		t.Fatalf("counts = %s, want {}", counts)
+	}
+}

@@ -438,3 +438,17 @@ func TestTickSharedTargetWithoutApplierPicksLowestName(t *testing.T) {
 		t.Fatalf("inserted = %+v, want one entry on a-drift", st.inserted)
 	}
 }
+
+// AWS AccessDenied messages name the caller ("User: arn:aws:iam::<account>:user/..."); the
+// stack page shows this text, so it must not carry the ARN or account ID.
+func TestSummarizeAccessDeniedHidesIdentity(t *testing.T) {
+	err := &smithy.GenericAPIError{Code: "AccessDenied", Message: "User: " +
+		"arn:aws:iam::123456789012:user/system/k8s/pou is not authorized to perform: s3:ListBucket"}
+	got := summarize(err)
+	if strings.Contains(got, "arn:") || strings.Contains(got, "123456789012") {
+		t.Fatalf("summary leaks identity: %q", got)
+	}
+	if !strings.Contains(got, "access denied") {
+		t.Fatalf("summary = %q, want it to say access denied", got)
+	}
+}
