@@ -84,3 +84,29 @@ func TestPruneBatchCapIsError(t *testing.T) {
 		t.Fatalf("runs left = %d, want 0", n)
 	}
 }
+
+func TestPruneHistory(t *testing.T) {
+	s, _ := newTestStore(t)
+	ctx := t.Context()
+	now := time.Date(2026, 9, 25, 0, 0, 0, 0, time.UTC)
+	for key, start := range map[string]time.Time{
+		"old.history.json": now.Add(-200 * _day),
+		"new.history.json": now.Add(-10 * _day),
+	} {
+		if _, err := s.InsertHistory(ctx, entry(key, RunTypeUp, RunStateSucceeded, start), now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.Prune(ctx, now, _runRetention, _authRetention)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.History != 1 {
+		t.Fatalf("History pruned = %d, want 1", got.History)
+	}
+	var n int
+	must(t, s.pool.QueryRow(ctx, `SELECT count(*) FROM s3_history`).Scan(&n))
+	if n != 1 {
+		t.Fatalf("history rows left = %d", n)
+	}
+}

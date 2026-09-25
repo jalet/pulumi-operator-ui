@@ -19,6 +19,7 @@ type PruneResult struct {
 	Runs       int64
 	AuthEvents int64
 	Stacks     int64
+	History    int64 // s3_history rows
 }
 
 // Prune deletes runs and auth events older than their retention, then purges
@@ -31,6 +32,12 @@ func (s *Store) Prune(ctx context.Context, now time.Time, runs, auth time.Durati
 		WITH doomed AS (SELECT id FROM runs WHERE COALESCE(ended_at, observed_at) < $1
 		                ORDER BY id LIMIT $2)
 		DELETE FROM runs WHERE id IN (SELECT id FROM doomed)`, now.Add(-runs))
+	if err != nil {
+		return res, err
+	}
+	res.History, err = s.pruneBatched(ctx, "s3_history", `
+		WITH doomed AS (SELECT key FROM s3_history WHERE ended_at < $1 ORDER BY key LIMIT $2)
+		DELETE FROM s3_history WHERE key IN (SELECT key FROM doomed)`, now.Add(-runs))
 	if err != nil {
 		return res, err
 	}
@@ -61,7 +68,7 @@ func (s *Store) RunPruner(ctx context.Context, every, runs, auth time.Duration) 
 			s.log.Error().Err(err).Msg("prune")
 		} else {
 			s.log.Info().Int64("runs", res.Runs).Int64("auth_events", res.AuthEvents).
-				Int64("stacks", res.Stacks).Msg("pruned")
+				Int64("stacks", res.Stacks).Int64("history", res.History).Msg("pruned")
 		}
 		select {
 		case <-ctx.Done():
