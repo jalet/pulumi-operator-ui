@@ -1,0 +1,1 @@
+{"apiVersion":"pulumi.com/v1","kind":"Stack","metadata":{"name":"app","namespace":"ns"},"spec":{"stack":"dev"},"status":{"currentUpdate":{"name":"app-u2","commit":"ccc"},"lastUpdate":{"name":"app-u1","type":"up","state":"succeeded","lastAttemptedCommit":"bbb","lastSuccessfulCommit":"bbb"}}}

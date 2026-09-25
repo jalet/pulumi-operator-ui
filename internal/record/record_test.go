@@ -81,7 +81,7 @@ func TestRunFromUpdate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.give, func(t *testing.T) {
-			got, err := RunFromUpdate(load(t, tt.give), "c1", _now)
+			got, err := RunFromUpdate(load(t, tt.give), "c1", store.CommitSourceStack, _now)
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
 					t.Fatalf("err = %v, want %v", err, tt.wantErr)
@@ -99,7 +99,7 @@ func TestRunFromUpdate(t *testing.T) {
 }
 
 func TestRunFromUpdateWithoutStackCommit(t *testing.T) {
-	got, err := RunFromUpdate(load(t, "update-progressing"), "", _now)
+	got, err := RunFromUpdate(load(t, "update-progressing"), "", "", _now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestRunFromUpdateTruncatesMessage(t *testing.T) {
 	if err := unstructured.SetNestedField(obj.Object, long, "status", "message"); err != nil {
 		t.Fatal(err)
 	}
-	got, err := RunFromUpdate(obj, "c1", _now)
+	got, err := RunFromUpdate(obj, "c1", store.CommitSourceStack, _now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,15 +165,6 @@ func TestStackFromObject(t *testing.T) {
 				t.Errorf("mismatch (-want +got):\n%s", diff)
 			}
 		})
-	}
-}
-
-func TestStackCommit(t *testing.T) {
-	if got := StackCommit(load(t, "stack-ready")); got != "aaa" {
-		t.Fatalf("StackCommit = %q, want aaa", got)
-	}
-	if got := StackCommit(load(t, "stack-stalled")); got != "" {
-		t.Fatalf("StackCommit = %q, want empty", got)
 	}
 }
 
@@ -230,7 +221,7 @@ func FuzzRunFromUpdate(f *testing.F) {
 			return
 		}
 		obj.SetGroupVersionKind(UpdateGVK)
-		_, _ = RunFromUpdate(&obj, "c", time.Unix(0, 0)) // must not panic
+		_, _ = RunFromUpdate(&obj, "c", store.CommitSourceStack, time.Unix(0, 0)) // must not panic
 	})
 }
 
@@ -247,4 +238,42 @@ func FuzzRunFromStackLastUpdate(f *testing.F) {
 		_, _, _ = RunFromStackLastUpdate(&obj, time.Unix(0, 0))
 		_, _ = StackFromObject(&obj, time.Unix(0, 0))
 	})
+}
+
+func TestCommitFor(t *testing.T) {
+	tests := []struct {
+		name       string
+		giveStack  string
+		giveUpdate string
+		wantCommit string
+		wantSource store.CommitSource
+	}{
+		{name: "current update", giveStack: "stack-running", giveUpdate: "app-u2",
+			wantCommit: "ccc", wantSource: store.CommitSourceUpdate},
+		{name: "last update", giveStack: "stack-running", giveUpdate: "app-u1",
+			wantCommit: "bbb", wantSource: store.CommitSourceUpdate},
+		{name: "unrelated update falls back to last attempted", giveStack: "stack-running",
+			giveUpdate: "app-u9", wantCommit: "bbb", wantSource: store.CommitSourceStack},
+		{name: "no status", giveStack: "stack-stalled", giveUpdate: "x"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			commit, source := CommitFor(load(t, tt.giveStack), tt.giveUpdate)
+			if commit != tt.wantCommit || source != tt.wantSource {
+				t.Fatalf("CommitFor = %q/%q, want %q/%q", commit, source, tt.wantCommit,
+					tt.wantSource)
+			}
+		})
+	}
+}
+
+func TestRunFromUpdateExactCommit(t *testing.T) {
+	got, err := RunFromUpdate(load(t, "update-progressing"), "ccc", store.CommitSourceUpdate,
+		_now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Commit != "ccc" || got.CommitSource != store.CommitSourceUpdate {
+		t.Fatalf("commit = %q/%q", got.Commit, got.CommitSource)
+	}
 }

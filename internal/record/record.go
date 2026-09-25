@@ -70,10 +70,16 @@ type lastUpdate struct {
 	LastSuccessfulCommit string `json:"lastSuccessfulCommit"`
 }
 
+type currentUpdate struct {
+	Name   string `json:"name"`
+	Commit string `json:"commit"`
+}
+
 type stackObj struct {
 	Status struct {
-		Conditions []metav1.Condition `json:"conditions"`
-		LastUpdate *lastUpdate        `json:"lastUpdate"`
+		Conditions    []metav1.Condition `json:"conditions"`
+		CurrentUpdate *currentUpdate     `json:"currentUpdate"`
+		LastUpdate    *lastUpdate        `json:"lastUpdate"`
 	} `json:"status"`
 }
 
@@ -111,13 +117,26 @@ func StackFromObject(obj *unstructured.Unstructured, now time.Time) (store.Stack
 	return st, nil
 }
 
-// StackCommit is the Stack's status.lastUpdate.lastAttemptedCommit, "" if absent.
-func StackCommit(obj *unstructured.Unstructured) string {
-	c, _, err := unstructured.NestedString(obj.Object, "status", "lastUpdate", "lastAttemptedCommit")
-	if err != nil {
-		return ""
+// CommitFor returns the commit of the named Update as the Stack reports it. When the
+// Stack's currentUpdate or lastUpdate names that Update, the commit is exact and sourced
+// "update". Otherwise it falls back to lastAttemptedCommit, sourced "stack", which is only
+// an approximation. Both are "" when the Stack reports nothing.
+func CommitFor(stack *unstructured.Unstructured, updateName string) (string, store.CommitSource) {
+	var s stackObj
+	if err := decode(stack, &s); err != nil {
+		return "", ""
 	}
-	return c
+	if cu := s.Status.CurrentUpdate; cu != nil && cu.Name == updateName && cu.Commit != "" {
+		return cu.Commit, store.CommitSourceUpdate
+	}
+	lu := s.Status.LastUpdate
+	if lu == nil || lu.LastAttemptedCommit == "" {
+		return "", ""
+	}
+	if lu.Name == updateName {
+		return lu.LastAttemptedCommit, store.CommitSourceUpdate
+	}
+	return lu.LastAttemptedCommit, store.CommitSourceStack
 }
 
 // StackOwner returns the name of the Stack that owns obj.
@@ -134,10 +153,10 @@ func StackOwner(obj *unstructured.Unstructured) (string, error) {
 	return "", fmt.Errorf("%s/%s: %w", obj.GetNamespace(), obj.GetName(), ErrNoStackOwner)
 }
 
-// RunFromUpdate maps an Update to its run. stackCommit is the owning Stack's
-// lastAttemptedCommit at the time the Update is seen; "" when unknown.
-func RunFromUpdate(obj *unstructured.Unstructured, stackCommit string, now time.Time) (
-	store.Run, error) {
+// RunFromUpdate maps an Update to its run. commit and source come from CommitFor on the
+// owning Stack; both are "" when unknown.
+func RunFromUpdate(obj *unstructured.Unstructured, commit string, source store.CommitSource,
+	now time.Time) (store.Run, error) {
 	if obj.GroupVersionKind() != UpdateGVK {
 		panic("invariant violated: RunFromUpdate called with " + obj.GroupVersionKind().String())
 	}
@@ -165,8 +184,8 @@ func RunFromUpdate(obj *unstructured.Unstructured, stackCommit string, now time.
 		EndedAt:    timePtr(u.Status.EndTime),
 		ObservedAt: now,
 	}
-	if stackCommit != "" {
-		r.Commit, r.CommitSource = stackCommit, store.CommitSourceStack
+	if commit != "" {
+		r.Commit, r.CommitSource = commit, source
 	}
 	return r, nil
 }
