@@ -135,3 +135,19 @@ func TestEngineLinesDropsPreviousRunTail(t *testing.T) {
 		t.Fatalf("(-want +got):\n%s", diff)
 	}
 }
+
+// A single engine line longer than the scanner's 1 MiB limit ends the read as truncation;
+// retrying would hit the same line for the whole retry window.
+func TestEngineLinesOverlongLineIsTruncation(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(kline(_t0, "pulumi", "Updating (prod):"))
+	b.WriteString(kline(_t0, "pulumi", strings.Repeat("x", 2<<20)))
+	got, truncated, err := engineLines(strings.NewReader(b.String()), _t0.Add(-time.Second), _t0,
+		_t0.Add(time.Second), 8<<20)
+	if err != nil || !truncated {
+		t.Fatalf("err=%v truncated=%v, want no error and truncation", err, truncated)
+	}
+	if diff := cmp.Diff([]string{"Updating (prod):"}, got); diff != "" {
+		t.Fatalf("(-want +got):\n%s", diff)
+	}
+}

@@ -107,6 +107,9 @@ func engineLines(r io.Reader, from, start, to time.Time, bytesMax int) ([]string
 		}
 	}
 	if err := sc.Err(); err != nil {
+		if errors.Is(err, bufio.ErrTooLong) {
+			return out, true, nil // one huge line: keep what came before it
+		}
 		return out, false, fmt.Errorf("read log: %w", err)
 	}
 	return out, false, nil

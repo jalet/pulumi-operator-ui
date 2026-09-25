@@ -107,7 +107,10 @@ func Parse(lines []string) Result {
 		if mm := _meta.FindStringSubmatch(line); mm != nil {
 			if mm[1] == "urn" {
 				cur.res.URN = mm[2]
-				cur.res.Name = mm[2][strings.LastIndex(mm[2], "::")+2:]
+				cur.res.Name = mm[2]
+				if i := strings.LastIndex(mm[2], "::"); i >= 0 {
+					cur.res.Name = mm[2][i+2:]
+				}
 			}
 			continue
 		}

@@ -193,3 +193,14 @@ func TestParseRefreshDriftAfterOutputs(t *testing.T) {
 		t.Error("diff keeps the outputs marker")
 	}
 }
+
+func TestParseURNWithoutSeparatorKeepsName(t *testing.T) {
+	got := Parse([]string{
+		"    + a:b/c:D: (create)",
+		"        [urn=odd-urn]",
+		"      k: 1",
+	})
+	if len(got.Resources) != 1 || got.Resources[0].Name != "odd-urn" {
+		t.Fatalf("resources = %+v, want name odd-urn", got.Resources)
+	}
+}
