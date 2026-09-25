@@ -74,7 +74,7 @@ output (the logs) and, for S3 DIY backends, in `.pulumi/history/<project>/<stack
 | `internal/watch` | controller-runtime cache watching Stack, Update, Workspace and workspace Pods; namespaces configurable, all by default | Kubernetes API |
 | `internal/record` | Maps Update and Stack events to idempotent upserts on `runs`: Update UID, stack, type, commit, start, end, state, message. The Update CRD carries no commit, so the commit comes from the owning Stack: `status.currentUpdate.commit` or `status.lastUpdate.lastAttemptedCommit` when that entry names this Update (`commit_source=update`, exact), otherwise `lastAttemptedCommit` when the Update is first seen (`commit_source=stack`, shown as approximate). A restart re-lists and converges, and every Stack reconcile inserts its `status.lastUpdate` as a run if that run is not recorded yet | watch, store |
 | `internal/logs` | The workspace pod is expected to be long-lived and reused across Updates (to be confirmed in the spike), so the log is sliced per run: read with `sinceTime` set to the Update's `startTime`, stop at `endTime`. If the app restarts mid-run, it re-reads from `startTime` and replaces the stored text, so capture is idempotent. Stores ANSI-stripped text, capped at 1 MiB, then parses the resource lines and the `Resources:` summary with a pure parser | watch, store |
-| `internal/s3hist` | **Optional.** Only built when `--s3-history.enabled=true`; nothing else imports it. Every 5 minutes, lists new history files and stores `kind`, timestamps and `resourceChanges`, matching each entry to an `up`, `refresh` or `destroy` run of the same stack by time window. DIY history does not record previews, so preview runs never have S3 counts | S3, store |
+| `internal/s3hist` | **Optional.** Only built when `--s3-history.enabled=true`; nothing else imports it. Every 5 minutes, lists history files newer than the last one seen (`StartAfter`) and stores `kind`, timestamps, `result`, the `resourceChanges` counts and `git.head`, matching each entry to an `up`, `refresh` or `destroy` run of the same stack by time window (see S3 history findings). DIY history does not record previews, so preview runs never have S3 counts | S3, store |
 | `internal/store` | Schema, queries and retention: `--retention` (default 180 days) for runs, logs and changes; `--auth-retention` (default 1 year) for auth events | PostgreSQL |
 | `internal/auth` | OIDC login and callback (authorization code with PKCE, `state` and `nonce`), sessions with a fixed lifetime, claim allowlist middleware, auth event recording | IdP, store |
 | `internal/web` | Pages, `/events` SSE stream, `/healthz`, `/readyz`; `/metrics` on a separate listener (`--metrics-addr`) | store, auth |
@@ -116,9 +116,15 @@ under GDPR Article 5(1)(e), storage limitation. VERIFY WITH LEGAL COUNSEL.
   chart renders no AWS env and no S3 egress. The app runs fully on CR status plus logs.
 - When on, it requires `--s3-history.bucket` and `--s3-history.prefix` (e.g. `pulumi/example`) plus
   standard AWS SDK credentials and region.
-- The IAM permissions it needs are `s3:ListBucket` (conditioned on the prefix), `s3:GetObject` on
-  `<prefix>/.pulumi/history/*`, and `kms:Decrypt` only when the bucket uses SSE-KMS, conditioned
-  on `kms:ViaService`.
+- The IAM permissions it needs are `s3:ListBucket` conditioned on
+  `s3:prefix` = `<prefix>/.pulumi/history/*`, and `s3:GetObject` on
+  `<prefix>/.pulumi/history/*/*.history.json` only, which excludes the `.checkpoint.json`
+  files (full stack state). `kms:Decrypt` is needed only when the bucket uses a
+  customer-managed KMS key, conditioned on `kms:ViaService`; the AWS-managed `aws/s3` key
+  needs no IAM KMS permission.
+- It stores only `kind`, `startTime`, `endTime`, `result`, the `resourceChanges` counts and
+  `environment["git.head"]`. It never stores `config` (it carries encrypted secret values) or
+  any other `environment` field (it carries commit author and committer emails).
 - Misconfiguration or S3 errors only mark runs with `s3_status=error` and increment a metric. They
   never fail readiness.
 
@@ -205,8 +211,31 @@ confirm:
   `internal/logs`;
 - answered in phase 1: the 2.9.1 Update CRD has no commit field; the Stack's
   `status.currentUpdate{name, commit}` names the running Update and its commit;
-- the S3 history path, the file shape, whether refresh and destroy produce history files, and
-  the bucket's encryption.
+- answered by the S3 spike (2026-09-25): see "S3 history findings" below.
+
+## S3 history findings (spike, 2026-09-25)
+
+Probed read-only against the example backend
+`s3://state-bucket/pulumi/example?region=eu-north-1` (AWS account 123456789012).
+
+| Topic | Finding |
+|---|---|
+| Path | `<prefix>/.pulumi/history/<project>/<stack>/<stack>-<ns>.history.json`, here `pulumi/example/.pulumi/history/example-infra/prod/` |
+| Neighbours | Every history file has a `<stack>-<ns>.checkpoint.json` next to it (about 300 KB, full state). Never read them |
+| File name | `<ns>` is the entry's end time in Unix nanoseconds, fixed width, so lexical order is time order |
+| Previews | Write no history (57 entries, none from the hourly previews) |
+| `kind` | `update` (our `up`), `refresh`, and presumably `destroy` |
+| Times | `startTime`, `endTime` in Unix seconds |
+| `result` | `succeeded` or `failed` |
+| `resourceChanges` | Counts only, by operation (for example `{create: 2, delete: 1, same: 108}`); no per-resource list, which only the engine log can give |
+| Commit | `environment["git.head"]` is the exact commit |
+| Sensitive fields | `config` (12 keys, encrypted secure values) and `environment` author and committer emails |
+| Run link | No Update ID; entries match runs by stack, type and time only |
+| Encryption | SSE-KMS with the AWS-managed `aws/s3` key, Bucket Keys enabled. All public-access blocks on, versioning on, bucket policy not public |
+
+The AWS-managed key means the reader needs no `kms:Decrypt` in IAM; confirm on the first real read.
+Operator baseline prefers a customer-managed key for state buckets; moving to one would add
+`kms:Decrypt` with `kms:ViaService = s3.eu-north-1.amazonaws.com` to the policy.
 
 ## Phases
 
