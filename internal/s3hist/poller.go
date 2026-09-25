@@ -134,8 +134,11 @@ func (p *Poller) pollStack(ctx context.Context, s store.S3Stack) {
 	t, err := TargetFor(s)
 	if err != nil {
 		reason := "backend"
-		if errors.Is(err, ErrEndpoint) {
+		switch {
+		case errors.Is(err, ErrEndpoint):
 			reason = "endpoint"
+		case errors.Is(err, ErrStackName):
+			reason = "stack_name"
 		}
 		p.fail(ctx, s, reason, err)
 		return

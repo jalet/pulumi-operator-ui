@@ -19,6 +19,7 @@ var (
 	ErrBadKind   = errors.New("unsupported history kind")
 	ErrBadResult = errors.New("unsupported history result")
 	ErrTooLarge  = errors.New("history file too large")
+	ErrStackName = errors.New("unsupported spec.stack name")
 )
 
 // Target is where one Stack's history lives.
@@ -42,7 +43,33 @@ func TargetFor(s store.S3Stack) (Target, error) {
 	if q.Get("endpoint") != "" {
 		return Target{}, ErrEndpoint
 	}
-	prefix := path.Join(strings.Trim(u.Path, "/"), ".pulumi/history", s.Project, s.PulumiStack)
+	stack, err := stackSegment(s.PulumiStack, s.Project)
+	if err != nil {
+		return Target{}, err
+	}
+	prefix := path.Join(strings.Trim(u.Path, "/"), ".pulumi/history", s.Project, stack)
 	return Target{Namespace: s.Namespace, Stack: s.Name, Bucket: u.Host,
 		Region: q.Get("region"), Prefix: strings.TrimPrefix(prefix, "/") + "/"}, nil
+}
+
+// stackSegment returns the stack name as it appears in the history path. DIY backends accept
+// "stack", "org/stack" and "org/project/stack"; the project segment must match the project.
+func stackSegment(name, project string) (string, error) {
+	parts := strings.Split(name, "/")
+	for _, p := range parts {
+		if p == "" {
+			return "", fmt.Errorf("%w: %q", ErrStackName, name)
+		}
+	}
+	switch len(parts) {
+	case 1, 2:
+		return parts[len(parts)-1], nil
+	case 3:
+		if parts[1] != project {
+			return "", fmt.Errorf("%w: %q is not in project %q", ErrStackName, name, project)
+		}
+		return parts[2], nil
+	default:
+		return "", fmt.Errorf("%w: %q", ErrStackName, name)
+	}
 }

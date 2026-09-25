@@ -58,3 +58,34 @@ func FuzzTargetFor(f *testing.F) {
 	}
 	f.Fuzz(func(_ *testing.T, backend string) { _, _ = TargetFor(stackWith(backend)) })
 }
+
+func TestTargetForQualifiedStackNames(t *testing.T) {
+	tests := []struct {
+		give       string
+		wantPrefix string
+		wantErr    bool
+	}{
+		{give: "dev", wantPrefix: "p/.pulumi/history/proj/dev/"},
+		{give: "organization/proj/dev", wantPrefix: "p/.pulumi/history/proj/dev/"},
+		{give: "organization/dev", wantPrefix: "p/.pulumi/history/proj/dev/"},
+		{give: "organization/other/dev", wantErr: true}, // project does not match
+		{give: "a/b/c/d", wantErr: true},
+		{give: "organization/proj/", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.give, func(t *testing.T) {
+			s := stackWith("s3://b/p")
+			s.PulumiStack = tt.give
+			got, err := TargetFor(s)
+			if tt.wantErr {
+				if !errors.Is(err, ErrStackName) {
+					t.Fatalf("err = %v, want ErrStackName", err)
+				}
+				return
+			}
+			if err != nil || got.Prefix != tt.wantPrefix {
+				t.Fatalf("got %+v, %v; want prefix %q", got, err, tt.wantPrefix)
+			}
+		})
+	}
+}
