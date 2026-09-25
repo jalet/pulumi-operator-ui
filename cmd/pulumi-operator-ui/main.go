@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-logr/zerologr"
 	"github.com/rs/zerolog"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -28,6 +29,7 @@ import (
 	"github.com/jalet/pulumi-operator-ui/internal/auth"
 	"github.com/jalet/pulumi-operator-ui/internal/config"
 	"github.com/jalet/pulumi-operator-ui/internal/events"
+	"github.com/jalet/pulumi-operator-ui/internal/logs"
 	"github.com/jalet/pulumi-operator-ui/internal/s3hist"
 	"github.com/jalet/pulumi-operator-ui/internal/store"
 	"github.com/jalet/pulumi-operator-ui/internal/watch"
@@ -110,6 +112,15 @@ func run(ctx context.Context, args []string, getenv func(string) string,
 		return st.RunPruner(ctx, pruneInterval, cfg.RetentionRuns, cfg.RetentionAuth)
 	})); err != nil {
 		return fmt.Errorf("add pruner: %w", err)
+	}
+	cs, err := kubernetes.NewForConfig(rc)
+	if err != nil {
+		return fmt.Errorf("kubernetes clientset: %w", err)
+	}
+	capturer := logs.New(logs.Options{Store: st, Source: logs.NewKubeSource(cs), Now: time.Now,
+		Log: logger})
+	if err := mgr.Add(manager.RunnableFunc(capturer.Run)); err != nil {
+		return fmt.Errorf("add log capture: %w", err)
 	}
 	if cfg.S3HistoryEnabled {
 		if err := addS3History(ctx, mgr, cfg, st, logger, loadAWS); err != nil {
