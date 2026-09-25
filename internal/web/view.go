@@ -1,6 +1,8 @@
 package web
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -278,15 +280,33 @@ func changeSummary(counts map[string]int64) string {
 		return ""
 	}
 	var parts []string
+	known := map[string]bool{}
 	for _, o := range _changeOps {
+		known[o.op] = true
 		if n := counts[o.op]; n > 0 && o.symbol != "" {
 			parts = append(parts, fmt.Sprintf("%s%d", o.symbol, n))
 		}
+	}
+	var others []string
+	for op, n := range counts {
+		if !known[op] && n > 0 {
+			others = append(others, op)
+		}
+	}
+	slices.Sort(others)
+	for _, op := range others {
+		parts = append(parts, fmt.Sprintf("%s %d", op, counts[op]))
 	}
 	if len(parts) == 0 {
 		return "no changes"
 	}
 	return strings.Join(parts, " ")
+}
+
+// timelineCounts is runCounts without the source, for the timeline's Changes column.
+func timelineCounts(r store.Run) map[string]int64 {
+	counts, _ := runCounts(r)
+	return counts
 }
 
 // imported reports whether a run was created from S3 history rather than seen as an Update.
@@ -355,8 +375,9 @@ func shortType(t string) string {
 	return module + "/" + parts[2]
 }
 
-// changesNote is the line shown under the counts when no resource list is shown.
-func changesNote(r store.Run, s3Interval time.Duration) string {
+// changesNote is the line shown under the counts when no resource list is shown. s3Stack
+// says whether the run's Stack has an s3:// backend, so history can still arrive.
+func changesNote(r store.Run, s3Interval time.Duration, s3Stack bool) string {
 	if len(r.Resources) > 0 {
 		return ""
 	}
@@ -367,9 +388,8 @@ func changesNote(r store.Run, s3Interval time.Duration) string {
 		return "No resources changed."
 	case store.LogStatusUnavailable:
 		msg := "The engine log was no longer available."
-		if r.Changes == nil && s3Interval > 0 && r.Type != store.RunTypePreview {
-			msg += fmt.Sprintf(" Waiting for Pulumi history, read every %d minutes.",
-				int(s3Interval.Minutes()))
+		if r.Changes == nil && s3Interval > 0 && s3Stack && r.Type != store.RunTypePreview {
+			msg += " Waiting for Pulumi history, read every " + every(s3Interval) + "."
 		}
 		return msg
 	}
@@ -377,6 +397,19 @@ func changesNote(r store.Run, s3Interval time.Duration) string {
 		return "Only counts are available for this run."
 	}
 	return "No change details are available for this run."
+}
+
+// every phrases a poll interval: "minute", "5 minutes", or the duration when it is not a
+// whole number of minutes.
+func every(d time.Duration) string {
+	switch {
+	case d == time.Minute:
+		return "minute"
+	case d%time.Minute == 0:
+		return fmt.Sprintf("%d minutes", int(d.Minutes()))
+	default:
+		return d.String()
+	}
 }
 
 // operatorMessage decodes a message PKO wrapped as a JSON string; anything else is kept.
@@ -399,10 +432,18 @@ type runView struct {
 	CountSource string
 	Rows        []resourceRow
 	Note        string
+	Version     string // hash of what the changes panel shows
 }
 
-func newRunView(r store.Run, s3Interval time.Duration) runView {
+func newRunView(r store.Run, s3Interval time.Duration, s3Stack bool) runView {
 	counts, src := runCounts(r)
-	return runView{Run: r, Counts: counts, CountSource: src, Rows: resourceRows(r.Resources),
-		Note: changesNote(r, s3Interval)}
+	v := runView{Run: r, Counts: counts, CountSource: src, Rows: resourceRows(r.Resources),
+		Note: changesNote(r, s3Interval, s3Stack)}
+	b, err := json.Marshal([]any{v.Counts, v.CountSource, r.Resources, v.Note, r.LogTruncated})
+	if err != nil {
+		panic("invariant violated: marshal changes version: " + err.Error())
+	}
+	sum := sha256.Sum256(b)
+	v.Version = hex.EncodeToString(sum[:])[:12]
+	return v
 }

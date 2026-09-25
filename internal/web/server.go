@@ -73,6 +73,7 @@ type stackPage struct {
 	Chips []chip
 	// AddPreviews links to the same page with previews added; "" when they are shown.
 	AddPreviews string
+	S3On        bool // S3 history is enabled; a stored s3_error is stale otherwise
 }
 
 // statsWindow is how far back the stack header counts runs.
@@ -110,6 +111,7 @@ func New(d Deps) http.Handler {
 	protected("GET /runs/{id}", s.runPage)
 	protected("GET /fragments/runs/{id}/row", s.runRow)
 	protected("GET /fragments/runs/{id}/header", s.runHeader)
+	protected("GET /fragments/runs/{id}/changes", s.runChanges)
 	protected("GET /events", s.events)
 	// A cheap authenticated probe: the layout fetches it on "session-expired", and an
 	// expired session answers 401 with HX-Redirect to the login.
@@ -273,7 +275,8 @@ func (s *server) loadStackPage(ctx context.Context, ns, name string, before *sto
 	}
 	base := "/stacks/" + ns + "/" + name
 	page := stackPage{Stack: st, Runs: runs, Next: next, Live: before == nil,
-		Query: typesQuery(types), Stats: stats, Chips: typeChips(base, types, stats)}
+		Query: typesQuery(types), Stats: stats, Chips: typeChips(base, types, stats),
+		S3On: s.s3Interval > 0}
 	if !slices.Contains(f.EffectiveTypes(), store.RunTypePreview) {
 		page.AddPreviews = withTypes(base, toggleType(types, store.RunTypePreview))
 	}
@@ -282,7 +285,7 @@ func (s *server) loadStackPage(ctx context.Context, ns, name string, before *sto
 
 func (s *server) runPage(w http.ResponseWriter, r *http.Request) {
 	s.withRun(w, r, func(run store.Run) {
-		s.render(w, r, "run", "layout", newRunView(run, s.s3Interval), http.StatusOK)
+		s.render(w, r, "run", "layout", s.runView(r, run), http.StatusOK)
 	})
 }
 
@@ -292,8 +295,32 @@ func (s *server) runRow(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) runHeader(w http.ResponseWriter, r *http.Request) {
 	s.withRun(w, r, func(run store.Run) {
-		s.render(w, r, "run", "run-header", newRunView(run, s.s3Interval), http.StatusOK)
+		s.render(w, r, "run", "run-header", s.runView(r, run), http.StatusOK)
 	})
+}
+
+// runChanges re-renders the changes panel only when its content changed: 204 tells htmx
+// to keep what is on screen, including any diff the user opened.
+func (s *server) runChanges(w http.ResponseWriter, r *http.Request) {
+	s.withRun(w, r, func(run store.Run) {
+		v := s.runView(r, run)
+		if r.URL.Query().Get("v") == v.Version {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		s.render(w, r, "run", "run-changes", v, http.StatusOK)
+	})
+}
+
+// runView builds the run page data. Whether history can still arrive depends on the
+// Stack's backend; a failed Stack lookup only drops the waiting note.
+func (s *server) runView(r *http.Request, run store.Run) runView {
+	s3Stack := false
+	if s.s3Interval > 0 {
+		st, err := s.store.GetStack(r.Context(), run.Namespace, run.StackName)
+		s3Stack = err == nil && strings.HasPrefix(st.BackendURL, "s3://")
+	}
+	return newRunView(run, s.s3Interval, s3Stack)
 }
 
 func (s *server) withRun(w http.ResponseWriter, r *http.Request, fn func(store.Run)) {

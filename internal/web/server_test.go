@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -260,7 +261,7 @@ func TestRunPage(t *testing.T) {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
 	for _, want := range []string{"app-u1", "&lt;b&gt;done&lt;/b&gt;", "5m0s", `class="commit commit-approx"`,
-		"approximate: taken from the Stack when the run was first seen", `hx-trigger="sse:run-7"`} {
+		"approximate: taken from the Stack when the run was first seen", `hx-trigger="sse:run-7, sse:resync"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("run page lacks %q", want)
 		}
@@ -651,10 +652,30 @@ func TestTimelineChangesColumn(t *testing.T) {
 	}
 }
 
+// newServerS3 is newServer with S3 history enabled at the given interval.
+func newServerS3(t *testing.T, r *fakeReader, interval time.Duration) *httptest.Server {
+	t.Helper()
+	h := New(Deps{Store: r, Broker: events.NewBroker(), RequireAuth: passthrough,
+		AuthRoutes: func(*http.ServeMux) {}, Log: zerolog.Nop(), Now: func() time.Time { return _now },
+		S3Interval: interval})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// A stale s3_error stays on the row after S3 history is turned off; it must not show then.
+func TestStackS3NoticeHiddenWhenS3Off(t *testing.T) {
+	r := sampleReader()
+	r.stacks[0].S3Error = "access denied"
+	if _, body := get(t, newServer(t, r, nil), "/stacks/ns/app"); strings.Contains(body, "Pulumi history unavailable") {
+		t.Error("S3 notice shown with S3 history off")
+	}
+}
+
 func TestStackS3Notice(t *testing.T) {
 	r := sampleReader()
 	r.stacks[0].S3Error = "access denied"
-	srv := newServer(t, r, nil)
+	srv := newServerS3(t, r, 2*time.Minute)
 	if _, body := get(t, srv, "/stacks/ns/app"); !strings.Contains(body, "Pulumi history unavailable: access denied") {
 		t.Error("no S3 notice")
 	}
@@ -716,5 +737,45 @@ func TestRunPageTruncatedNote(t *testing.T) {
 	_, body := get(t, newServer(t, r, nil), "/runs/7")
 	if !strings.Contains(body, "The change list is incomplete") {
 		t.Fatal("truncation note missing")
+	}
+}
+
+func TestTimelineFallsBackToLogCounts(t *testing.T) {
+	r := sampleReader()
+	r.runs[0].LogChanges = map[string]int64{"update": 1, "same": 116}
+	_, body := get(t, newServer(t, r, nil), "/stacks/ns/app")
+	if !strings.Contains(body, "~1") {
+		t.Fatal("timeline lacks the engine log counts")
+	}
+}
+
+var _changesURL = regexp.MustCompile(`hx-get="(/fragments/runs/7/changes\?v=[0-9a-f]{12})"`)
+
+// The changes panel is refreshed apart from the header and only re-rendered when its content
+// changed, so a diff the user opened stays open across live updates.
+func TestRunChangesFragmentSkipsUnchanged(t *testing.T) {
+	r := sampleReader()
+	r.runs[0].LogStatus = store.LogStatusCaptured
+	r.runs[0].Resources = []store.LogResource{{Op: "create", Type: "a:b/c:D", Name: "x", Diff: "k: 1"}}
+	srv := newServer(t, r, nil)
+	_, page := get(t, srv, "/runs/7")
+	m := _changesURL.FindStringSubmatch(page)
+	if m == nil {
+		t.Fatal("run page lacks a versioned changes fragment URL")
+	}
+	if !strings.Contains(page, `hx-trigger="sse:run-7, sse:resync"`) {
+		t.Error("run page does not listen to sse:resync")
+	}
+	url := strings.ReplaceAll(m[1], "&amp;", "&")
+	if resp, _ := get(t, srv, url); resp.StatusCode != http.StatusNoContent {
+		t.Errorf("unchanged panel: status %d, want 204", resp.StatusCode)
+	}
+	r.runs[0].Resources = append(r.runs[0].Resources, store.LogResource{Op: "delete", Name: "y"})
+	resp, body := get(t, srv, url)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, ">y<") {
+		t.Errorf("changed panel: status %d, want 200 with the new resource", resp.StatusCode)
+	}
+	if _, hdr := get(t, srv, "/fragments/runs/7/header"); strings.Contains(hdr, "<details") {
+		t.Error("header fragment still carries the changes panel")
 	}
 }

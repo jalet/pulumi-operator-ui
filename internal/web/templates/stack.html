@@ -13,7 +13,7 @@
     <div><dt class="text-muted">Success</dt><dd class="mt-1 text-base font-bold">{{successRate .Stats}}</dd></div>
   </dl>
 </section>
-{{with .Stack.S3Error}}<p class="panel mb-4 px-4 py-2 text-sm text-muted" role="status">Pulumi history unavailable: {{.}}</p>{{end}}
+{{if .S3On}}{{with .Stack.S3Error}}<p class="panel mb-4 px-4 py-2 text-sm text-muted" role="status">Pulumi history unavailable: {{.}}</p>{{end}}{{end}}
 <nav class="mb-3 flex flex-wrap gap-2" aria-label="Run types">{{range .Chips}}{{template "chip" .}}{{end}}</nav>
 <div class="panel overflow-x-auto">
 <table class="w-full text-sm">
@@ -37,5 +37,5 @@
   <td class="px-3 py-2.5">{{template "commit" .}}</td>
   <td class="px-3 py-2.5 whitespace-nowrap">{{if .StartedAt}}<time datetime="{{iso .StartedAt}}">{{age .StartedAt}}</time>{{else}}<span class="text-muted">{{noStart .State}}</span>{{end}}</td>
   <td class="px-3 py-2.5">{{duration .StartedAt .EndedAt}}</td>
-  <td class="px-3 py-2.5 font-mono text-xs whitespace-nowrap">{{changeSummary .Changes}}</td>
+  <td class="px-3 py-2.5 font-mono text-xs whitespace-nowrap">{{changeSummary (timelineCounts .)}}</td>
 </tr>{{end}}

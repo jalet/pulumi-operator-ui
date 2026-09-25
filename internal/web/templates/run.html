@@ -3,9 +3,10 @@
 {{define "content"}}
 <nav class="mb-3 text-xs text-muted" aria-label="Breadcrumb"><a class="hover:text-ink" href="/">Stacks</a> / <a class="hover:text-ink" href="/?ns={{.Namespace}}">{{.Namespace}}</a> / <a class="hover:text-ink" href="/stacks/{{.Namespace}}/{{.StackName}}">{{.StackName}}</a></nav>
 {{template "run-header" .}}
+{{template "run-changes" .}}
 {{end}}
 
-{{define "run-header"}}<section id="run-header-{{.ID}}" hx-get="/fragments/runs/{{.ID}}/header" hx-trigger="sse:run-{{.ID}}" hx-swap="outerHTML">
+{{define "run-header"}}<section id="run-header-{{.ID}}" hx-get="/fragments/runs/{{.ID}}/header" hx-trigger="sse:run-{{.ID}}, sse:resync" hx-swap="outerHTML">
 <div class="panel mb-4 p-4">
   <div class="flex flex-wrap items-start justify-between gap-3">
     <h1 class="text-lg font-bold">{{.Type}} <span class="font-mono text-sm font-normal text-muted">{{.UpdateName}}</span></h1>
@@ -22,6 +23,12 @@
   <h2 class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">Operator message</h2>
   {{if .Message}}<pre class="whitespace-pre-wrap break-words rounded-md border border-line p-3 font-mono text-xs{{if eq .State "failed"}} message-failed{{end}}">{{operatorMessage .Message}}</pre>{{else}}<p class="text-sm text-muted">No message.</p>{{end}}
 </div>
+</section>{{end}}
+
+{{/* The changes panel refreshes apart from the header. Its URL carries a version of what it
+     shows, and the server answers 204 (no swap) when nothing changed, so an open diff stays
+     open across live updates. */}}
+{{define "run-changes"}}<section id="run-changes-{{.ID}}" hx-get="/fragments/runs/{{.ID}}/changes?v={{.Version}}" hx-trigger="sse:run-{{.ID}}, sse:resync" hx-swap="outerHTML">
 <div class="panel p-4">
   <h2 class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">Changes</h2>
   {{with changeChips .Counts}}<div class="flex flex-wrap items-center gap-2">{{range .}}<span class="pill tone-{{.Tone}}">{{.Count}} {{.Label}}</span>{{end}}<span class="text-xs text-muted">from {{$.CountSource}}</span></div>{{end}}

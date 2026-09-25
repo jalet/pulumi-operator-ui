@@ -203,6 +203,8 @@ func TestChangeSummary(t *testing.T) {
 		{map[string]int64{"create": 2, "delete": 1, "same": 9}, "+2 -1"},
 		{map[string]int64{"update": 1, "replace": 3}, "~1 ±3"},
 		{map[string]int64{"same": 4}, "no changes"},
+		{map[string]int64{"import": 3, "same": 4}, "import 3"},
+		{map[string]int64{"create": 1, "discard": 2}, "+1 discard 2"},
 		{nil, ""},
 	}
 	for _, tt := range tests {
@@ -287,8 +289,27 @@ func TestChangesNote(t *testing.T) {
 		}), 0, ""},
 	}
 	for _, tt := range tests {
-		if got := changesNote(tt.give, tt.s3); got != tt.want {
+		if got := changesNote(tt.give, tt.s3, true); got != tt.want {
 			t.Errorf("%s: changesNote = %q, want %q", tt.name, got, tt.want)
+		}
+	}
+}
+
+func TestChangesNoteWaitingWording(t *testing.T) {
+	r := store.Run{Type: store.RunTypeUp, LogStatus: store.LogStatusUnavailable}
+	const gone = "The engine log was no longer available."
+	for _, tt := range []struct {
+		interval time.Duration
+		s3Stack  bool
+		want     string
+	}{
+		{time.Minute, true, gone + " Waiting for Pulumi history, read every minute."},
+		{90 * time.Second, true, gone + " Waiting for Pulumi history, read every 1m30s."},
+		{5 * time.Minute, true, gone + " Waiting for Pulumi history, read every 5 minutes."},
+		{2 * time.Minute, false, gone}, // the Stack has no S3 backend
+	} {
+		if got := changesNote(r, tt.interval, tt.s3Stack); got != tt.want {
+			t.Errorf("interval %v s3Stack %v: %q, want %q", tt.interval, tt.s3Stack, got, tt.want)
 		}
 	}
 }
