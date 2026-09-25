@@ -24,4 +24,4 @@
 </body>
 </html>{{end}}
 
-{{define "commit"}}{{if .Commit}}<code {{if eq .CommitSource "stack"}}class="commit commit-approx" title="approximate: taken from the Stack when the run was first seen"{{else}}class="commit"{{end}}>{{shortCommit .Commit}}</code>{{else}}<span class="text-muted">unknown</span>{{end}}{{end}}
+{{define "commit"}}{{if .Commit}}{{$url := commitURL .StackRepoURL .VCSRepo .Commit}}{{if $url}}<a href="{{$url}}" target="_blank" rel="noopener noreferrer" class="hover:underline">{{end}}<code {{if eq .CommitSource "stack"}}class="commit commit-approx" title="approximate: taken from the Stack when the run was first seen"{{else}}class="commit"{{end}}>{{shortCommit .Commit}}</code>{{if $url}}</a>{{end}}{{else}}<span class="text-muted">unknown</span>{{end}}{{end}}

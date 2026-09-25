@@ -780,3 +780,13 @@ func TestRunChangesFragmentSkipsUnchanged(t *testing.T) {
 		t.Error("header fragment still carries the changes panel")
 	}
 }
+func TestRunPageLinksCommit(t *testing.T) {
+	r := sampleReader()
+	r.runs[0].Commit = "0123456789abcdef0123456789abcdef01234567"
+	r.runs[0].StackRepoURL = "git@github.com:o/r.git"
+	_, body := get(t, newServer(t, r, nil), "/runs/7")
+	if !strings.Contains(body, `href="https://github.com/o/r/commit/0123456789abcdef0123456789abcdef01234567"`) ||
+		!strings.Contains(body, `rel="noopener noreferrer"`) {
+		t.Fatal("run page does not link the commit")
+	}
+}

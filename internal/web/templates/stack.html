@@ -5,7 +5,7 @@
 <section class="panel mb-4 flex flex-wrap items-center justify-between gap-4 p-4">
   <div>
     <h1 class="text-lg font-bold">{{.Stack.Name}} <span class="font-normal text-muted">{{.Stack.Namespace}}</span></h1>
-    <p class="mt-1 text-xs text-muted">last deployed {{if .Stack.LastCommit}}<code>{{shortCommit .Stack.LastCommit}}</code>{{else}}none{{end}}</p>
+    <p class="mt-1 text-xs text-muted">last deployed {{if .Stack.LastCommit}}{{$url := commitURL .Stack.RepoURL "" .Stack.LastCommit}}{{if $url}}<a href="{{$url}}" target="_blank" rel="noopener noreferrer" class="hover:underline">{{end}}<code>{{shortCommit .Stack.LastCommit}}</code>{{if $url}}</a>{{end}}{{else}}none{{end}}</p>
   </div>
   <dl class="flex flex-wrap gap-6 text-xs">
     <div><dt class="text-muted">Health</dt><dd class="mt-1">{{template "pill" (health .Stack)}}</dd></div>
