@@ -248,6 +248,7 @@ var _changeOps = []struct{ op, label, tone, symbol string }{
 	{"update", "updated", "run", "~"},
 	{"delete", "deleted", "bad", "-"},
 	{"replace", "replaced", "att", "±"},
+	{"import", "imported", "run", "↓"},
 	{"same", "unchanged", "mute", ""},
 }
 
@@ -446,4 +447,22 @@ func newRunView(r store.Run, s3Interval time.Duration, s3Stack bool) runView {
 	sum := sha256.Sum256(b)
 	v.Version = hex.EncodeToString(sum[:])[:12]
 	return v
+}
+
+// originBadge says who ran a run: the laptop CLI or the in-cluster operator.
+type originBadge struct{ Label, Tone, Agent string }
+
+// origin labels a run's origin; nil when nothing is known (an imported run without
+// exec.kind). A run seen through an Update is the operator's even before S3 history links.
+func origin(r store.Run) *originBadge {
+	switch {
+	case r.ExecKind == "cli":
+		return &originBadge{"laptop", "att", r.ExecAgent}
+	case r.ExecKind == "auto.local", r.ExecKind == "" && r.UID != "":
+		return &originBadge{"operator", "mute", r.ExecAgent}
+	case r.ExecKind != "":
+		return &originBadge{r.ExecKind, "mute", r.ExecAgent}
+	default:
+		return nil
+	}
 }

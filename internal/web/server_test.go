@@ -790,3 +790,21 @@ func TestRunPageLinksCommit(t *testing.T) {
 		t.Fatal("run page does not link the commit")
 	}
 }
+func TestTimelineShowsTitleAndOrigin(t *testing.T) {
+	r := sampleReader()
+	r.runs[0].UpdateName, r.runs[0].UID = "s3:prod-1", ""
+	r.runs[0].Title, r.runs[0].ExecKind = "chore: <tidy>", "cli"
+	_, body := get(t, newServer(t, r, nil), "/stacks/ns/app")
+	for _, want := range []string{"chore: &lt;tidy&gt;", "s3:prod-1", ">laptop<"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("timeline lacks %s", want)
+		}
+	}
+}
+
+func TestImportChipOnByDefault(t *testing.T) {
+	_, body := get(t, newServer(t, sampleReader(), nil), "/stacks/ns/app")
+	if !strings.Contains(body, ">Import</a>") && !strings.Contains(body, ">Import <") {
+		t.Fatal("no Import chip")
+	}
+}

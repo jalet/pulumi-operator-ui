@@ -31,7 +31,7 @@
 </tbody>{{end}}
 
 {{define "run-row"}}<tr id="run-{{.ID}}" class="border-b border-line last:border-0" hx-get="/fragments/runs/{{.ID}}/row" hx-trigger="sse:run-{{.ID}}" hx-swap="outerHTML">
-  <td class="px-3 py-2.5 whitespace-nowrap"><a class="font-mono text-xs hover:underline" href="/runs/{{.ID}}">{{.UpdateName}}</a></td>
+  <td class="px-3 py-2.5"><a class="hover:underline" href="/runs/{{.ID}}">{{if .Title}}<span class="text-sm">{{.Title}}</span><span class="block font-mono text-[11px] text-muted">{{.UpdateName}}</span>{{else}}<span class="font-mono text-xs">{{.UpdateName}}</span>{{end}}</a>{{with origin .}} <span class="pill tone-{{.Tone}}"{{with .Agent}} title="{{.}}"{{end}}>{{.Label}}</span>{{end}}</td>
   <td class="px-3 py-2.5">{{.Type}}</td>
   <td class="px-3 py-2.5">{{template "pill" (stateBadge .State)}}</td>
   <td class="px-3 py-2.5">{{template "commit" .}}</td>

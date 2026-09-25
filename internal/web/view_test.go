@@ -203,7 +203,7 @@ func TestChangeSummary(t *testing.T) {
 		{map[string]int64{"create": 2, "delete": 1, "same": 9}, "+2 -1"},
 		{map[string]int64{"update": 1, "replace": 3}, "~1 ±3"},
 		{map[string]int64{"same": 4}, "no changes"},
-		{map[string]int64{"import": 3, "same": 4}, "import 3"},
+		{map[string]int64{"read": 3, "same": 4}, "read 3"},
 		{map[string]int64{"create": 1, "discard": 2}, "+1 discard 2"},
 		{nil, ""},
 	}
@@ -315,3 +315,30 @@ func TestChangesNoteWaitingWording(t *testing.T) {
 }
 
 func with(r store.Run, f func(*store.Run)) store.Run { f(&r); return r }
+func TestOriginBadge(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		give store.Run
+		want *originBadge
+	}{
+		{"laptop", store.Run{ExecKind: "cli", ExecAgent: "a"}, &originBadge{"laptop", "att", "a"}},
+		{"operator from history", store.Run{ExecKind: "auto.local"}, &originBadge{"operator", "mute", ""}},
+		{"operator before history", store.Run{UID: "u"}, &originBadge{"operator", "mute", ""}},
+		{"other value", store.Run{ExecKind: "remote"}, &originBadge{"remote", "mute", ""}},
+		{"unknown import", store.Run{UpdateName: "s3:x"}, nil},
+	} {
+		if diff := cmp.Diff(tt.want, origin(tt.give)); diff != "" {
+			t.Errorf("%s (-want +got):\n%s", tt.name, diff)
+		}
+	}
+}
+
+func TestChangeChipsImport(t *testing.T) {
+	got := changeChips(map[string]int64{"import": 3, "same": 1})
+	if len(got) != 2 || got[0] != (changeChip{Label: "imported", Count: 3, Tone: "run"}) {
+		t.Fatalf("chips = %+v", got)
+	}
+	if s := changeSummary(map[string]int64{"import": 3}); s != "↓3" {
+		t.Errorf("summary = %q", s)
+	}
+}
