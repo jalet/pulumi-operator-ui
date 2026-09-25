@@ -117,9 +117,9 @@ func TestParseTypes(t *testing.T) {
 		{give: "preview,up", want: []store.RunType{store.RunTypeUp, store.RunTypePreview}},
 		{give: "up,up,", want: []store.RunType{store.RunTypeUp}},
 		{give: ",", want: nil},
-		{give: "up,refresh,destroy", want: nil}, // the default set
+		{give: "up,refresh,destroy,import", want: nil}, // the default set
+		{give: "import", want: []store.RunType{store.RunTypeImport}},
 		{give: "UP", wantErr: true},
-		{give: "import", wantErr: true},
 		{give: "up,bogus", wantErr: true},
 	}
 	for _, tt := range tests {
@@ -154,10 +154,10 @@ func TestTypesQuery(t *testing.T) {
 
 func TestToggleType(t *testing.T) {
 	var def []store.RunType
-	if got := typesQuery(toggleType(def, store.RunTypePreview)); got != "up,refresh,destroy,preview" {
+	if got := typesQuery(toggleType(def, store.RunTypePreview)); got != "up,refresh,destroy,import,preview" {
 		t.Errorf("add preview to default = %q", got)
 	}
-	if got := typesQuery(toggleType(def, store.RunTypeUp)); got != "refresh,destroy" {
+	if got := typesQuery(toggleType(def, store.RunTypeUp)); got != "refresh,destroy,import" {
 		t.Errorf("remove up from default = %q", got)
 	}
 	if got := toggleType([]store.RunType{store.RunTypeUp}, store.RunTypeUp); got != nil {

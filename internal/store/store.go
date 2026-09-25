@@ -50,6 +50,7 @@ const (
 	RunTypeUp      RunType = "up"
 	RunTypeRefresh RunType = "refresh"
 	RunTypeDestroy RunType = "destroy"
+	RunTypeImport  RunType = "import"
 
 	RunStatePending   RunState = "pending"
 	RunStateRunning   RunState = "running"
@@ -92,6 +93,7 @@ type Stack struct {
 	BackendURL  string     // spec.backend
 	Project     string     // status.projectInfo.name
 	PulumiStack string     // spec.stack
+	RepoURL     string     // spec.projectRepo
 	Preview     bool       // spec.preview
 	S3Error     string     // last S3 history error, "" when fine; written by SetStackS3Status
 	S3CheckedAt *time.Time // last successful S3 history poll
@@ -117,6 +119,11 @@ type Run struct {
 	LogChanges   map[string]int64 // change counts from the engine log; nil when not captured
 	Resources    []LogResource    // changed resources from the engine log
 	LogTruncated bool             // the engine log result hit a cap and is incomplete
+	ExecKind     string           // exec.kind from S3 history: "cli", "auto.local", ...
+	ExecAgent    string           // exec.agent from S3 history, may be ""
+	Title        string           // commit subject, for runs without an Update
+	VCSRepo      string           // "<host>/<owner>/<repo>" from S3 history
+	StackRepoURL string           // stacks.repo_url, joined for commit links
 }
 
 // Publisher receives a notification after each committed change.

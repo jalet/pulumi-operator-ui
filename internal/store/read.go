@@ -44,6 +44,7 @@ type Cursor struct {
 const _stackSummarySelect = `
 SELECT s.namespace, s.name, s.ready, s.reconciling, s.stalled, s.last_commit, s.updated_at,
        s.deleted_at, s.backend_url, s.project, s.pulumi_stack, s.s3_error, s.s3_checked_at,
+       s.repo_url,
        p.id, p.state, p.at, p.commit, p.started_at, p.ended_at,
        u.id, u.state, u.at, u.commit, u.started_at, u.ended_at
 FROM stacks s
@@ -64,13 +65,16 @@ LEFT JOIN LATERAL (
 // which can reach 1 MiB per run and are only shown on the run page.
 const (
 	_runSelectHead = `
-SELECT id, namespace, update_name, COALESCE(uid, ''), stack_name, type, commit, commit_source,
-       state, message, started_at, ended_at, observed_at, c.counts, log_status, log_truncated,
+SELECT runs.id, runs.namespace, runs.update_name, COALESCE(runs.uid, ''), runs.stack_name,
+       runs.type, runs.commit, runs.commit_source, runs.state, runs.message, runs.started_at,
+       runs.ended_at, runs.observed_at, c.counts, runs.log_status, runs.log_truncated,
+       runs.exec_kind, runs.exec_agent, runs.title, runs.vcs_repo, COALESCE(st.repo_url, ''),
        lc.counts, `
 	_runSelectFrom = `
 FROM runs
 LEFT JOIN run_changes c ON c.run_id = runs.id AND c.source = 's3'
-LEFT JOIN run_changes lc ON lc.run_id = runs.id AND lc.source = 'log'`
+LEFT JOIN run_changes lc ON lc.run_id = runs.id AND lc.source = 'log'
+LEFT JOIN stacks st ON st.namespace = runs.namespace AND st.name = runs.stack_name`
 	_runSelect       = _runSelectHead + `NULL::jsonb` + _runSelectFrom
 	_runDetailSelect = _runSelectHead + `lc.resources` + _runSelectFrom
 )
@@ -116,8 +120,9 @@ type RunFilter struct {
 
 // Run type sets. The default hides previews, which PKO runs on every resync.
 var (
-	DefaultRunTypes = []RunType{RunTypeUp, RunTypeRefresh, RunTypeDestroy}
-	AllRunTypes     = []RunType{RunTypeUp, RunTypeRefresh, RunTypeDestroy, RunTypePreview}
+	DefaultRunTypes = []RunType{RunTypeUp, RunTypeRefresh, RunTypeDestroy, RunTypeImport}
+	AllRunTypes     = []RunType{RunTypeUp, RunTypeRefresh, RunTypeDestroy, RunTypeImport,
+		RunTypePreview}
 )
 
 // EffectiveTypes returns f.Types, or DefaultRunTypes when empty.
@@ -145,7 +150,7 @@ func (s *Store) ListRuns(ctx context.Context, namespace, name string, f RunFilte
 		at, id = &before.At, before.ID
 	}
 	rows, err := s.pool.Query(ctx, _runSelect+`
-		WHERE namespace = $1 AND stack_name = $2
+		WHERE runs.namespace = $1 AND stack_name = $2
 		  AND ($3::timestamptz IS NULL OR (COALESCE(started_at, observed_at), id) < ($3, $4))
 		  AND type = ANY($6::text[])
 		ORDER BY COALESCE(started_at, observed_at) DESC, id DESC
@@ -199,7 +204,7 @@ func typeStrings(ts []RunType) []string {
 
 // GetRun returns one run by id.
 func (s *Store) GetRun(ctx context.Context, id int64) (Run, error) {
-	rows, err := s.pool.Query(ctx, _runDetailSelect+` WHERE id = $1`, id)
+	rows, err := s.pool.Query(ctx, _runDetailSelect+` WHERE runs.id = $1`, id)
 	if err != nil {
 		return Run{}, fmt.Errorf("get run: %w", err)
 	}
@@ -218,7 +223,8 @@ func scanRun(row pgx.CollectableRow) (Run, error) {
 	var counts, logCounts, resources []byte
 	err := row.Scan(&r.ID, &r.Namespace, &r.UpdateName, &r.UID, &r.StackName, &r.Type,
 		&r.Commit, &r.CommitSource, &r.State, &r.Message, &r.StartedAt, &r.EndedAt,
-		&r.ObservedAt, &counts, &r.LogStatus, &r.LogTruncated, &logCounts, &resources)
+		&r.ObservedAt, &counts, &r.LogStatus, &r.LogTruncated, &r.ExecKind, &r.ExecAgent,
+		&r.Title, &r.VCSRepo, &r.StackRepoURL, &logCounts, &resources)
 	if err != nil {
 		return r, err
 	}
@@ -246,7 +252,7 @@ func scanStackSummary(row pgx.CollectableRow) (StackSummary, error) {
 	)
 	err := row.Scan(&st.Namespace, &st.Name, &st.Ready, &st.Reconciling, &st.Stalled,
 		&st.LastCommit, &st.UpdatedAt, &st.DeletedAt,
-		&st.BackendURL, &st.Project, &st.PulumiStack, &st.S3Error, &st.S3CheckedAt,
+		&st.BackendURL, &st.Project, &st.PulumiStack, &st.S3Error, &st.S3CheckedAt, &st.RepoURL,
 		&p.id, &p.state, &p.at, &p.commit, &p.started, &p.ended,
 		&u.id, &u.state, &u.at, &u.commit, &u.started, &u.ended)
 	if err != nil {

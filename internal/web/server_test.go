@@ -350,10 +350,11 @@ func TestStackPageDefaultTypes(t *testing.T) {
 		t.Fatalf("filter = %+v, want default", r.gotF)
 	}
 	for _, want := range []string{
-		`<a class="chip chip-on" href="/stacks/ns/app?types=refresh,destroy" aria-current="true">Up</a>`,
-		`<a class="chip chip-on" href="/stacks/ns/app?types=up,destroy" aria-current="true">Refresh</a>`,
-		`<a class="chip chip-on" href="/stacks/ns/app?types=up,refresh" aria-current="true">Destroy</a>`,
-		`<a class="chip" href="/stacks/ns/app?types=up,refresh,destroy,preview">Preview (5 hidden)</a>`,
+		`<a class="chip chip-on" href="/stacks/ns/app?types=refresh,destroy,import" aria-current="true">Up</a>`,
+		`<a class="chip chip-on" href="/stacks/ns/app?types=up,destroy,import" aria-current="true">Refresh</a>`,
+		`<a class="chip chip-on" href="/stacks/ns/app?types=up,refresh,import" aria-current="true">Destroy</a>`,
+		`<a class="chip chip-on" href="/stacks/ns/app?types=up,refresh,destroy" aria-current="true">Import</a>`,
+		`<a class="chip" href="/stacks/ns/app?types=up,refresh,destroy,import,preview">Preview (5 hidden)</a>`,
 		`hx-get="/fragments/stacks/ns/app/runs"`,
 	} {
 		if !strings.Contains(body, want) {
@@ -420,7 +421,7 @@ func TestEmptyTimelineOffersPreviews(t *testing.T) {
 	srv := newServer(t, r, nil)
 	_, body := get(t, srv, "/stacks/ns/app")
 	if !strings.Contains(body, "No runs of the selected types.") ||
-		!strings.Contains(body, `href="/stacks/ns/app?types=up,refresh,destroy,preview"`) {
+		!strings.Contains(body, `href="/stacks/ns/app?types=up,refresh,destroy,import,preview"`) {
 		t.Fatalf("empty state missing:\n%s", body)
 	}
 }

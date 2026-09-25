@@ -31,6 +31,8 @@ type HistoryEntry struct {
 	StartedAt, EndedAt                time.Time
 	Commit                            string
 	Counts                            map[string]int64
+	ExecKind, ExecAgent, Message      string // origin and commit subject
+	VCSRepo                           string // "<host>/<owner>/<repo>"
 	// SeenAt is set when read back; InsertHistory takes it as an argument instead.
 	SeenAt time.Time
 }
