@@ -114,8 +114,8 @@ under GDPR Article 5(1)(e), storage limitation. VERIFY WITH LEGAL COUNSEL.
 - It is off by default: `--s3-history.enabled=false`, chart value `s3History.enabled: false`.
 - While off, the binary constructs no AWS client and reads no AWS config or credentials. The
   chart renders no AWS env and no S3 egress. The app runs fully on CR status plus logs.
-- When on, it requires `--s3-history.bucket` and `--s3-history.prefix` (e.g. `pulumi/example`) plus
-  standard AWS SDK credentials and region.
+- When on, it discovers each Stack's bucket, prefix and region from `spec.backend` and needs
+  standard AWS SDK credentials (a dedicated read-only IAM user, never PKO's).
 - The IAM permissions it needs are `s3:ListBucket` conditioned on
   `s3:prefix` = `<prefix>/.pulumi/history/*`, and `s3:GetObject` on
   `<prefix>/.pulumi/history/*/*.history.json` only, which excludes the `.checkpoint.json`
@@ -197,7 +197,7 @@ limits.
 | `--metrics-addr` | `:9090` | separate listener for `/metrics` |
 | `--log.max-bytes` | `1048576` | |
 | `--s3-history.enabled` | `false` | opt-in |
-| `--s3-history.bucket`, `--s3-history.prefix`, `--s3-history.interval` | none, none, `5m` | used only when enabled |
+| `--s3-history.interval` | `5m` | poll interval, minimum `1m`; used only when enabled. Bucket and prefix come from each Stack's `spec.backend` |
 
 ## Open question for the spike (phase 0)
 

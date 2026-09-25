@@ -56,4 +56,14 @@ spec:
       ports:
         - port: {{ $np.idp.port }}
           protocol: TCP
+    {{- if .Values.s3History.enabled }}
+    - to:
+        {{- range $np.s3.cidrs }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        - port: {{ $np.s3.port }}
+          protocol: TCP
+    {{- end }}
 {{- end }}

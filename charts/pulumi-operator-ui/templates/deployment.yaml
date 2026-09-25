@@ -63,12 +63,29 @@ spec:
             {{- if $v.database.caSecret.name }}
             - --database.ca-file=/etc/pou/db-ca/ca.crt
             {{- end }}
+            {{- if $v.s3History.enabled }}
+            - --s3-history.enabled=true
+            - {{ printf "--s3-history.interval=%s" $v.s3History.interval | quote }}
+            {{- end }}
           env:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: {{ $v.database.urlSecret.name }}
                   key: {{ $v.database.urlSecret.key }}
+            {{- if $v.s3History.enabled }}
+            {{- $aws := required "s3History.credentialsSecret.name is required when s3History.enabled" $v.s3History.credentialsSecret.name }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $aws }}
+                  key: {{ $v.s3History.credentialsSecret.accessKeyIdKey }}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $aws }}
+                  key: {{ $v.s3History.credentialsSecret.secretAccessKeyKey }}
+            {{- end }}
           ports:
             - name: http
               containerPort: 8080

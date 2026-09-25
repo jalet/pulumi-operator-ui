@@ -91,6 +91,21 @@ networkPolicy:
     cidrs:
       - 0.0.0.0/0
     port: 443
+  # Only rendered when s3History.enabled.
+  s3:
+    cidrs:
+      - 0.0.0.0/0
+    port: 443
+
+# Optional: read Pulumi's update history from each Stack's S3 backend (see README).
+s3History:
+  enabled: false
+  interval: 5m
+  # Secret with a dedicated read-only IAM user's keys (docs/iam/s3-history-policy.json).
+  credentialsSecret:
+    name: ""
+    accessKeyIdKey: access-key-id
+    secretAccessKeyKey: secret-access-key
 
 serviceMonitor:
   enabled: false

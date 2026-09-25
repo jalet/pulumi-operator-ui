@@ -34,6 +34,25 @@ Also set `networkPolicy.gateway`, `networkPolicy.database` and
 refuses unverified database TLS, so a plain `sslmode=prefer` URL fails at startup. See
 [the chart's values](charts/pulumi-operator-ui/values.yaml) for everything else.
 
+## S3 history (optional)
+
+For Stacks on an S3 DIY backend, the app can read Pulumi's own update history to show change
+counts, an exact commit per run, and ups and refreshes it never saw (their Updates were
+garbage-collected, or ran before the app was installed). It is off by default and needs:
+
+1. An IAM user with only `docs/iam/s3-history-policy.json` (substitute `BUCKET` and `PREFIX`,
+   for example `state-bucket` and `pulumi/example`). It lists the history prefix and reads
+   `*.history.json` files only, never the `.checkpoint.json` state. With a customer-managed KMS
+   key on the bucket, add `kms:Decrypt` on that key, conditioned on
+   `kms:ViaService = s3.<region>.amazonaws.com`; the AWS-managed `aws/s3` key needs nothing.
+2. Its keys in a Secret (for example via an ExternalSecret from your secret store) with keys
+   `access-key-id` and `secret-access-key`.
+3. `s3History.enabled=true` and `s3History.credentialsSecret.name=<secret>`.
+
+The bucket, prefix and region come from each Stack's `spec.backend`; Stacks on other backends
+are skipped. Problems per Stack show on its page ("Pulumi history unavailable: ...") and in
+`pou_s3_errors_total`, and never affect readiness.
+
 ## Security model
 
 - Read-only: the ClusterRole (or per-namespace Roles) grants only `get`,

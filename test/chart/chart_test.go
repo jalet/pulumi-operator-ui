@@ -392,3 +392,64 @@ func TestSecretFilesReadableByNonRootUser(t *testing.T) {
 	}
 	t.Fatal("no secrets volume")
 }
+
+func TestS3HistoryOn(t *testing.T) {
+	objs := render(t, "--set", "s3History.enabled=true", "--set", "s3History.credentialsSecret.name=pou-aws")
+	a := args(t, objs)
+	for _, want := range []string{"--s3-history.enabled=true", "--s3-history.interval=5m"} {
+		if !slices.Contains(a, want) {
+			t.Errorf("args lack %s: %v", want, a)
+		}
+	}
+	env, _, _ := unstructured.NestedSlice(container(t, objs), "env")
+	found := map[string]string{}
+	for _, e := range env {
+		m, _ := e.(map[string]any)
+		name, _ := m["name"].(string)
+		sec, _, _ := unstructured.NestedString(m, "valueFrom", "secretKeyRef", "name")
+		key, _, _ := unstructured.NestedString(m, "valueFrom", "secretKeyRef", "key")
+		found[name] = sec + "/" + key
+	}
+	if found["AWS_ACCESS_KEY_ID"] != "pou-aws/access-key-id" ||
+		found["AWS_SECRET_ACCESS_KEY"] != "pou-aws/secret-access-key" {
+		t.Errorf("AWS env = %v", found)
+	}
+	np := one(t, objs, "NetworkPolicy")
+	egress, _, _ := unstructured.NestedSlice(np.Object, "spec", "egress")
+	var s3Rule bool
+	for _, rule := range egress {
+		r, _ := rule.(map[string]any)
+		to, _, _ := unstructured.NestedSlice(r, "to")
+		ports, _, _ := unstructured.NestedSlice(r, "ports")
+		for _, peer := range to {
+			pm, _ := peer.(map[string]any)
+			if cidr, _, _ := unstructured.NestedString(pm, "ipBlock", "cidr"); cidr == "0.0.0.0/0" {
+				for _, p := range ports {
+					if pp, _ := p.(map[string]any); pp["port"] == int64(443) {
+						s3Rule = true
+					}
+				}
+			}
+		}
+	}
+	if !s3Rule || len(egress) != 5 {
+		t.Errorf("S3 egress rule missing or wrong rule count (%d): %v", len(egress), egress)
+	}
+}
+
+func TestS3HistoryOffHasNoS3Egress(t *testing.T) {
+	egress, _, _ := unstructured.NestedSlice(one(t, render(t), "NetworkPolicy").Object, "spec", "egress")
+	if len(egress) != 4 {
+		t.Fatalf("egress rules = %d, want 4 without S3 history", len(egress))
+	}
+	if slices.ContainsFunc(args(t, render(t)), func(s string) bool { return strings.HasPrefix(s, "--s3-history") }) {
+		t.Error("s3 history args rendered while off")
+	}
+}
+
+func TestS3HistoryRequiresSecret(t *testing.T) {
+	out, err := helmTemplate(t, "--set", "s3History.enabled=true")
+	if err == nil || !strings.Contains(out, "s3History.credentialsSecret.name") {
+		t.Fatalf("err = %v, output:\n%s", err, out)
+	}
+}
