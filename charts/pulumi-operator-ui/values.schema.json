@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "object",
+      "properties": {
+        "repository": {"type": "string"},
+        "tag": {"type": "string"},
+        "pullPolicy": {"type": "string", "enum": ["Always", "IfNotPresent", "Never"]}
+      }
+    },
+    "namespaces": {"type": "array", "items": {"type": "string"}},
+    "database": {"type": "object"},
+    "oidc": {
+      "type": "object",
+      "properties": {
+        "issuer": {"type": "string"},
+        "clientID": {"type": "string"},
+        "redirectURL": {"type": "string"}
+      }
+    },
+    "auth": {
+      "type": "object",
+      "properties": {
+        "claim": {"type": "string"},
+        "allowed": {"type": "array", "items": {"type": "string", "pattern": "^[^,]+$"}}
+      }
+    },
+    "session": {
+      "type": "object",
+      "properties": {"maxAge": {"type": "string"}}
+    },
+    "retention": {
+      "type": "object",
+      "properties": {"runs": {"type": "string"}, "auth": {"type": "string"}}
+    },
+    "httpRoute": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "parentRefs": {"type": "array"},
+        "hostnames": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "apiServer": {
+          "type": "object",
+          "properties": {
+            "cidrs": {"type": "array", "items": {"type": "string"}},
+            "port": {"type": "integer"}
+          }
+        }
+      }
+    },
+    "serviceMonitor": {
+      "type": "object",
+      "properties": {"enabled": {"type": "boolean"}}
+    }
+  }
+}

@@ -1,0 +1,95 @@
+image:
+  repository: ghcr.io/jalet/pulumi-operator-ui
+  # Defaults to .Chart.AppVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Namespaces to watch. Empty watches all namespaces through a ClusterRole; otherwise the
+# chart creates one Role and RoleBinding per namespace.
+namespaces: []
+
+database:
+  # Secret holding the PostgreSQL URL (required). A CNPG app secret works as-is.
+  urlSecret:
+    name: ""
+    key: uri
+  # Optional Secret with the database CA; enables TLS verification of the server.
+  caSecret:
+    name: ""
+    key: ca.crt
+
+oidc:
+  issuer: ""
+  clientID: ""
+  redirectURL: ""
+  clientSecret:
+    name: ""
+    key: client-secret
+  # Optional ConfigMap with an extra CA bundle for the IdP.
+  caConfigMap:
+    name: ""
+    key: ca.crt
+
+auth:
+  claim: groups
+  # Claim values allowed to sign in (required). Values must not contain commas.
+  allowed: []
+
+session:
+  keySecret:
+    name: ""
+    key: key
+  # Optional previous key, accepted for verification during rotation.
+  previousKeySecret:
+    name: ""
+    key: key
+  maxAge: 8h
+
+retention:
+  runs: 4320h
+  auth: 8760h
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+httpRoute:
+  enabled: false
+  parentRefs: []
+  hostnames: []
+
+networkPolicy:
+  enabled: true
+  # Set these selectors to your Gateway's pods; the empty defaults allow any pod.
+  gateway:
+    namespaceSelector: {}
+    podSelector: {}
+  metricsScraper:
+    namespaceSelector: {}
+    podSelector: {}
+  dns:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kube-system
+    podSelector:
+      matchLabels:
+        k8s-app: kube-dns
+  # Kubernetes API server endpoint CIDRs (required when enabled), for example the
+  # addresses behind `kubectl get endpoints kubernetes -n default`.
+  apiServer:
+    cidrs: []
+    port: 6443
+  database:
+    namespaceSelector: {}
+    podSelector: {}
+    port: 5432
+  idp:
+    cidrs:
+      - 0.0.0.0/0
+    port: 443
+
+serviceMonitor:
+  enabled: false

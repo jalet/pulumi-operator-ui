@@ -1,0 +1,19 @@
+database:
+  urlSecret:
+    name: pou-db-app
+oidc:
+  issuer: https://idp.example
+  clientID: pou
+  redirectURL: https://pou.example/auth/callback
+  clientSecret:
+    name: pou-oidc
+auth:
+  allowed:
+    - Pulumi Viewers
+session:
+  keySecret:
+    name: pou-session
+networkPolicy:
+  apiServer:
+    cidrs:
+      - 10.0.0.1/32

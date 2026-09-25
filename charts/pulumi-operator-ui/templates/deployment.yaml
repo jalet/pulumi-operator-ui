@@ -1,0 +1,153 @@
+{{- include "pou.validate" . }}
+{{- $v := .Values }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pou.fullname" . }}
+  labels:
+    {{- include "pou.labels" . | nindent 4 }}
+spec:
+  # One replica by design: the SSE broker is in-process. Upserts are idempotent, so the
+  # brief overlap during a rolling update is safe.
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "pou.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pou.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "pou.fullname" . }}
+      # The watch needs the token; its ClusterRole or Roles grant only get/list/watch.
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: pulumi-operator-ui
+          image: "{{ $v.image.repository }}:{{ $v.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ $v.image.pullPolicy }}
+          args:
+            - --http-addr=:8080
+            - --metrics-addr=:9090
+            {{- with $v.namespaces }}
+            - {{ printf "--namespaces=%s" (join "," .) | quote }}
+            {{- end }}
+            - {{ printf "--oidc.issuer=%s" $v.oidc.issuer | quote }}
+            - {{ printf "--oidc.client-id=%s" $v.oidc.clientID | quote }}
+            - --oidc.client-secret-file=/etc/pou/secrets/client-secret
+            - {{ printf "--oidc.redirect-url=%s" $v.oidc.redirectURL | quote }}
+            {{- if $v.oidc.caConfigMap.name }}
+            - --oidc.ca-file=/etc/pou/oidc-ca/ca.crt
+            {{- end }}
+            - {{ printf "--auth.claim=%s" $v.auth.claim | quote }}
+            - {{ printf "--auth.allowed=%s" (join "," $v.auth.allowed) | quote }}
+            - --session.key-file=/etc/pou/secrets/session-key
+            {{- if $v.session.previousKeySecret.name }}
+            - --session.previous-key-file=/etc/pou/secrets/session-previous-key
+            {{- end }}
+            - {{ printf "--session.max-age=%s" $v.session.maxAge | quote }}
+            - {{ printf "--retention=%s" $v.retention.runs | quote }}
+            - {{ printf "--auth-retention=%s" $v.retention.auth | quote }}
+            {{- if $v.database.caSecret.name }}
+            - --database.ca-file=/etc/pou/db-ca/ca.crt
+            {{- end }}
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $v.database.urlSecret.name }}
+                  key: {{ $v.database.urlSecret.key }}
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: metrics
+              containerPort: 9090
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 2
+            failureThreshold: 150
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+          resources:
+            {{- toYaml $v.resources | nindent 12 }}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: secrets
+              mountPath: /etc/pou/secrets
+              readOnly: true
+            {{- if $v.database.caSecret.name }}
+            - name: db-ca
+              mountPath: /etc/pou/db-ca
+              readOnly: true
+            {{- end }}
+            {{- if $v.oidc.caConfigMap.name }}
+            - name: oidc-ca
+              mountPath: /etc/pou/oidc-ca
+              readOnly: true
+            {{- end }}
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: secrets
+          projected:
+            defaultMode: 0400
+            sources:
+              - secret:
+                  name: {{ $v.oidc.clientSecret.name }}
+                  items:
+                    - key: {{ $v.oidc.clientSecret.key }}
+                      path: client-secret
+              - secret:
+                  name: {{ $v.session.keySecret.name }}
+                  items:
+                    - key: {{ $v.session.keySecret.key }}
+                      path: session-key
+              {{- if $v.session.previousKeySecret.name }}
+              - secret:
+                  name: {{ $v.session.previousKeySecret.name }}
+                  items:
+                    - key: {{ $v.session.previousKeySecret.key }}
+                      path: session-previous-key
+              {{- end }}
+        {{- if $v.database.caSecret.name }}
+        - name: db-ca
+          secret:
+            secretName: {{ $v.database.caSecret.name }}
+            defaultMode: 0444
+            items:
+              - key: {{ $v.database.caSecret.key }}
+                path: ca.crt
+        {{- end }}
+        {{- if $v.oidc.caConfigMap.name }}
+        - name: oidc-ca
+          configMap:
+            name: {{ $v.oidc.caConfigMap.name }}
+            items:
+              - key: {{ $v.oidc.caConfigMap.key }}
+                path: ca.crt
+        {{- end }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi

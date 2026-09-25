@@ -1,0 +1,59 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $np := .Values.networkPolicy }}
+{{- $cidrs := required "networkPolicy.apiServer.cidrs is required when networkPolicy.enabled" $np.apiServer.cidrs }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "pou.fullname" . }}
+  labels:
+    {{- include "pou.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "pou.selectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - namespaceSelector: {{ toJson $np.gateway.namespaceSelector }}
+          podSelector: {{ toJson $np.gateway.podSelector }}
+      ports:
+        - port: 8080
+          protocol: TCP
+    - from:
+        - namespaceSelector: {{ toJson $np.metricsScraper.namespaceSelector }}
+          podSelector: {{ toJson $np.metricsScraper.podSelector }}
+      ports:
+        - port: 9090
+          protocol: TCP
+  egress:
+    - to:
+        - namespaceSelector: {{ toJson $np.dns.namespaceSelector }}
+          podSelector: {{ toJson $np.dns.podSelector }}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        {{- range $cidrs }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        - port: {{ $np.apiServer.port }}
+          protocol: TCP
+    - to:
+        - namespaceSelector: {{ toJson $np.database.namespaceSelector }}
+          podSelector: {{ toJson $np.database.podSelector }}
+      ports:
+        - port: {{ $np.database.port }}
+          protocol: TCP
+    - to:
+        {{- range $np.idp.cidrs }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        - port: {{ $np.idp.port }}
+          protocol: TCP
+{{- end }}

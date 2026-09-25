@@ -1,0 +1,7 @@
+pulumi-operator-ui is installed as {{ include "pou.fullname" . }} in {{ .Release.Namespace }}.
+{{- if .Values.httpRoute.enabled }}
+It is exposed through the HTTPRoute for: {{ join ", " .Values.httpRoute.hostnames }}
+{{- else }}
+No HTTPRoute is rendered; set httpRoute.enabled=true or expose the "http" port yourself.
+{{- end }}
+The redirect URL registered with your IdP must be {{ .Values.oidc.redirectURL }}.

@@ -1,0 +1,9 @@
+apiVersion: v2
+name: pulumi-operator-ui
+description: Read-only web UI for Pulumi Kubernetes Operator stacks, previews and deploys.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/jalet/pulumi-operator-ui
+sources:
+  - https://github.com/jalet/pulumi-operator-ui
