@@ -262,6 +262,9 @@ func TestTickPageCapResumesNextTick(t *testing.T) {
 	if len(st.inserted) != 2500 {
 		t.Fatalf("after second tick inserted %d, want 2500", len(st.inserted))
 	}
+	if a, b := st.inserted[1999], st.inserted[2000]; b.Seq != a.Seq+1 || a.Seq != 2000 {
+		t.Errorf("numbering across the page cap: %d then %d, want 2000 then 2001", a.Seq, b.Seq)
+	}
 }
 
 // Keys skipped as too old or unreadable still move the cursor, so they are not re-fetched.
@@ -454,5 +457,43 @@ func TestSummarizeAccessDeniedHidesIdentity(t *testing.T) {
 	}
 	if !strings.Contains(got, "access denied") {
 		t.Fatalf("summary = %q, want it to say access denied", got)
+	}
+}
+func TestTickNumbersKeysInOrder(t *testing.T) {
+	st, fs := newFakeStore(_stack), newFakeS3()
+	fs.put("b", _prefix+"dev-1.history.json", historyBody("update", 1790239700))
+	fs.put("b", _prefix+"dev-1.checkpoint.json", []byte(`{}`)) // not counted
+	fs.put("b", _prefix+"dev-2.history.json", historyBody("update", 1790239800))
+	newPoller(st, fs).tick(t.Context())
+	got := map[string]int64{}
+	for _, e := range st.inserted {
+		got[e.Key] = e.Seq
+	}
+	if got[_prefix+"dev-1.history.json"] != 1 || got[_prefix+"dev-2.history.json"] != 2 {
+		t.Fatalf("seq = %v", got)
+	}
+}
+
+// Keys too old to fetch are counted, so the numbers of newer ones stay right.
+func TestTickCountsTooOldKeys(t *testing.T) {
+	st, fs := newFakeStore(_stack), newFakeS3()
+	fs.put("b", _prefix+"dev-1.history.json", historyBody("update", 1000)) // decades old
+	fs.put("b", _prefix+"dev-2.history.json", historyBody("update", 1790239800))
+	newPoller(st, fs).tick(t.Context())
+	if len(st.inserted) != 1 || st.inserted[0].Seq != 2 {
+		t.Fatalf("inserted = %+v, want only dev-2 with seq 2", st.inserted)
+	}
+}
+
+func TestSeqStableAcrossReread(t *testing.T) {
+	st, fs := newFakeStore(_stack), newFakeS3()
+	fs.put("b", _prefix+"dev-1.history.json", historyBody("update", 1790239700))
+	p := newPoller(st, fs)
+	p.tick(t.Context())
+	fs.put("b", _prefix+"dev-2.history.json", historyBody("update", 1790239800))
+	p.tick(t.Context())
+	last := st.inserted[len(st.inserted)-1]
+	if last.Key != _prefix+"dev-2.history.json" || last.Seq != 2 {
+		t.Fatalf("second tick inserted %+v, want dev-2 seq 2", last)
 	}
 }

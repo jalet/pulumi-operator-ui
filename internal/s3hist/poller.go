@@ -216,15 +216,18 @@ func (p *Poller) pollTarget(ctx, s3ctx context.Context, client S3API, t Target,
 	if err != nil {
 		return &pollError{"db", err}
 	}
-	last := cursor
+	// last and lastCount move together: the key processed last and how many history keys
+	// were listed up to it, which numbers each entry by its place among the prefix's keys.
+	last, lastCount := cursor, count
 	save := func() *pollError {
 		if last == cursor {
 			return nil
 		}
-		if err := p.o.Store.SetHistoryCursor(ctx, t.Bucket, t.Prefix, last, count, now); err != nil {
+		if err := p.o.Store.SetHistoryCursor(ctx, t.Bucket, t.Prefix, last, lastCount,
+			now); err != nil {
 			return &pollError{"db", err}
 		}
-		cursor = last
+		cursor, count = last, lastCount
 		return nil
 	}
 	in := &s3.ListObjectsV2Input{Bucket: aws.String(t.Bucket), Prefix: aws.String(t.Prefix),
@@ -243,12 +246,13 @@ func (p *Poller) pollTarget(ctx, s3ctx context.Context, client S3API, t Target,
 		for _, o := range out.Contents {
 			key := aws.ToString(o.Key)
 			if strings.HasSuffix(key, ".history.json") {
-				if err := p.ingest(ctx, s3ctx, client, t, key, now); err != nil {
+				if err := p.ingest(ctx, s3ctx, client, t, key, lastCount+1, now); err != nil {
 					if serr := save(); serr != nil {
 						return serr
 					}
 					return &pollError{"get", err}
 				}
+				lastCount++
 			}
 			last = key // S3 lists in key order, so the cursor only moves forward
 		}
@@ -268,7 +272,7 @@ func (p *Poller) pollTarget(ctx, s3ctx context.Context, client S3API, t Target,
 // ingest fetches and stores one key. Permanent problems with the file (bad kind or result,
 // bad JSON, too large, too old) are skipped and counted; only fetch errors are returned.
 func (p *Poller) ingest(ctx, s3ctx context.Context, client S3API, t Target, key string,
-	now time.Time) error {
+	seq int64, now time.Time) error {
 	out, err := client.GetObject(s3ctx, &s3.GetObjectInput{Bucket: aws.String(t.Bucket),
 		Key: aws.String(key)})
 	if err != nil {
@@ -295,8 +299,9 @@ func (p *Poller) ingest(ctx, s3ctx context.Context, client S3API, t Target, key 
 		return nil
 	}
 	if e.EndedAt.Before(now.Add(-p.o.Retention)) {
-		return nil
+		return nil // counted by the caller, so newer keys keep their numbers
 	}
+	e.Seq = seq
 	if _, err := p.o.Store.InsertHistory(ctx, e, now); err != nil {
 		return err
 	}
