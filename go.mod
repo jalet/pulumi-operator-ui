@@ -6,6 +6,7 @@ require (
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/failsafe-go/failsafe-go v0.9.7
 	github.com/go-jose/go-jose/v4 v4.1.5
+	github.com/go-logr/zerologr v1.2.3
 	github.com/google/go-cmp v0.7.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/pressly/goose/v3 v3.28.0
