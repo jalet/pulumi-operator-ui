@@ -1,0 +1,8 @@
+{"kind":"resource-import","startTime":1790239727,"endTime":1790239732,"result":"succeeded",
+ "message":"feat(net): import the legacy VPC",
+ "resourceChanges":{"import":3,"same":10},
+ "config":{"example:secret":{"secure":"v1:AAAA"}},
+ "environment":{"git.head":"0123456789abcdef0123456789abcdef01234567",
+  "git.author":"A Person","git.author.email":"person@example.com",
+  "exec.kind":"cli","exec.agent":"some-agent",
+  "vcs.kind":"github.com","vcs.owner":"o","vcs.repo":"r"}}

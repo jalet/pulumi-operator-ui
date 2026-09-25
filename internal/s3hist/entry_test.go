@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/go-cmp/cmp"
 
@@ -36,7 +37,7 @@ func TestParseEntry(t *testing.T) {
 		Type: store.RunTypeUp, State: store.RunStateSucceeded,
 		StartedAt: time.Unix(1790239727, 0).UTC(), EndedAt: time.Unix(1790239732, 0).UTC(),
 		Commit: "0123456789abcdef0123456789abcdef01234567",
-		Counts: map[string]int64{"create": 2, "delete": 1, "same": 108}}
+		Counts: map[string]int64{"create": 2, "delete": 1, "same": 108}, Message: "deploy"}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("(-want +got):\n%s", diff)
 	}
@@ -80,4 +81,48 @@ func FuzzParseEntry(f *testing.F) {
 	f.Add(fixture(f))
 	f.Add([]byte(`{}`))
 	f.Fuzz(func(_ *testing.T, body []byte) { _, _ = ParseEntry(_target, _key, body) })
+}
+func TestParseEntryImportWithOrigin(t *testing.T) {
+	b, err := os.ReadFile("testdata/import-cli.history.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ParseEntry(_target, _key, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Type != store.RunTypeImport || got.ExecKind != "cli" || got.ExecAgent != "some-agent" ||
+		got.Message != "feat(net): import the legacy VPC" || got.VCSRepo != "github.com/o/r" ||
+		got.Counts["import"] != 3 {
+		t.Fatalf("entry = %+v", got)
+	}
+	if s := fmt.Sprintf("%+v", got); strings.Contains(s, "person@example.com") ||
+		strings.Contains(s, "A Person") || strings.Contains(s, "v1:AAAA") {
+		t.Fatalf("sensitive field leaked: %s", s)
+	}
+}
+
+func TestParseEntryCaps(t *testing.T) {
+	long := strings.Repeat("é", 150) // 300 bytes
+	body := fmt.Sprintf(`{"kind":"update","startTime":1,"endTime":2,"result":"succeeded",`+
+		`"message":%q,"environment":{"exec.kind":%q}}`, long, strings.Repeat("k", 40))
+	got, err := ParseEntry(_target, _key, []byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Message) > 200 || !utf8.ValidString(got.Message) {
+		t.Errorf("message: %d bytes, valid UTF-8 %v", len(got.Message), utf8.ValidString(got.Message))
+	}
+	if len(got.ExecKind) != 32 {
+		t.Errorf("exec kind = %d bytes, want 32", len(got.ExecKind))
+	}
+}
+
+func TestParseEntryVCSRepoNeedsAllParts(t *testing.T) {
+	body := `{"kind":"update","startTime":1,"endTime":2,"result":"succeeded",` +
+		`"environment":{"vcs.kind":"github.com","vcs.owner":"o"}}`
+	got, err := ParseEntry(_target, _key, []byte(body))
+	if err != nil || got.VCSRepo != "" {
+		t.Fatalf("vcs repo = %q err %v, want empty without vcs.repo", got.VCSRepo, err)
+	}
 }

@@ -3,6 +3,7 @@ package s3hist
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jalet/pulumi-operator-ui/internal/store"
@@ -20,14 +21,20 @@ type historyFile struct {
 	EndTime         int64            `json:"endTime"`
 	Result          string           `json:"result"`
 	ResourceChanges map[string]int64 `json:"resourceChanges"`
+	Message         string           `json:"message"`
 	Environment     struct {
-		GitHead string `json:"git.head"`
+		GitHead   string `json:"git.head"`
+		ExecKind  string `json:"exec.kind"`
+		ExecAgent string `json:"exec.agent"`
+		VCSKind   string `json:"vcs.kind"`
+		VCSOwner  string `json:"vcs.owner"`
+		VCSRepo   string `json:"vcs.repo"`
 	} `json:"environment"`
 }
 
 var (
 	_kinds = map[string]store.RunType{"update": store.RunTypeUp, "refresh": store.RunTypeRefresh,
-		"destroy": store.RunTypeDestroy}
+		"destroy": store.RunTypeDestroy, "resource-import": store.RunTypeImport}
 	_results = map[string]store.RunState{"succeeded": store.RunStateSucceeded,
 		"failed": store.RunStateFailed}
 )
@@ -49,10 +56,25 @@ func ParseEntry(t Target, key string, body []byte) (store.HistoryEntry, error) {
 	if !ok {
 		return store.HistoryEntry{}, fmt.Errorf("%w: %q", ErrBadResult, f.Result)
 	}
+	env := f.Environment
+	vcs := ""
+	if env.VCSKind != "" && env.VCSOwner != "" && env.VCSRepo != "" {
+		vcs = env.VCSKind + "/" + env.VCSOwner + "/" + env.VCSRepo
+	}
 	return store.HistoryEntry{
 		Key: key, Bucket: t.Bucket, Namespace: t.Namespace, StackName: t.Stack,
 		Type: typ, State: state,
 		StartedAt: time.Unix(f.StartTime, 0).UTC(), EndedAt: time.Unix(f.EndTime, 0).UTC(),
-		Commit: f.Environment.GitHead, Counts: f.ResourceChanges,
+		Commit: env.GitHead, Counts: f.ResourceChanges,
+		ExecKind: cut(env.ExecKind, 32), ExecAgent: cut(env.ExecAgent, 128),
+		Message: cut(f.Message, 200), VCSRepo: cut(vcs, 256),
 	}, nil
+}
+
+// cut shortens s to at most n bytes without splitting a UTF-8 sequence.
+func cut(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return strings.ToValidUTF8(s[:n], "")
 }
