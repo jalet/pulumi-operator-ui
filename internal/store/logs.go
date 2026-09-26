@@ -70,10 +70,21 @@ func (s *Store) SaveLog(ctx context.Context, runID int64, status string,
 		if err != nil {
 			panic("invariant violated: marshal resources: " + err.Error())
 		}
+		summary := make([]ResourceRef, 0, 3)
+		for _, lr := range resources[:min(3, len(resources))] {
+			summary = append(summary, ResourceRef{Type: lr.Type, Name: lr.Name})
+		}
+		sm, err := json.Marshal(summary)
+		if err != nil {
+			panic("invariant violated: marshal summary: " + err.Error())
+		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO run_changes (run_id, source, counts, resources) VALUES ($1, 'log', $2, $3)
+			INSERT INTO run_changes (run_id, source, counts, resources, summary, resource_total)
+			VALUES ($1, 'log', $2, $3, $4, $5)
 			ON CONFLICT (run_id, source) DO UPDATE
-			SET counts = EXCLUDED.counts, resources = EXCLUDED.resources`, runID, c, r); err != nil {
+			SET counts = EXCLUDED.counts, resources = EXCLUDED.resources,
+			    summary = EXCLUDED.summary, resource_total = EXCLUDED.resource_total`,
+			runID, c, r, sm, len(resources)); err != nil {
 			return fmt.Errorf("save log %d: changes: %w", runID, err)
 		}
 	}

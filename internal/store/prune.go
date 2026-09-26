@@ -36,8 +36,9 @@ func (s *Store) Prune(ctx context.Context, now time.Time, runs, auth time.Durati
 		return res, err
 	}
 	res.History, err = s.pruneBatched(ctx, "s3_history", `
-		WITH doomed AS (SELECT key FROM s3_history WHERE ended_at < $1 ORDER BY key LIMIT $2)
-		DELETE FROM s3_history WHERE key IN (SELECT key FROM doomed)`, now.Add(-runs))
+		WITH doomed AS (SELECT bucket, key FROM s3_history WHERE ended_at < $1
+		                ORDER BY bucket, key LIMIT $2)
+		DELETE FROM s3_history WHERE (bucket, key) IN (SELECT bucket, key FROM doomed)`, now.Add(-runs))
 	if err != nil {
 		return res, err
 	}

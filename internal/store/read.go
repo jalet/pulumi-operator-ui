@@ -70,9 +70,8 @@ SELECT runs.id, runs.namespace, runs.update_name, COALESCE(runs.uid, ''), runs.s
        runs.ended_at, runs.observed_at, c.counts, runs.log_status, runs.log_truncated,
        runs.exec_kind, runs.exec_agent, runs.title, runs.vcs_repo, COALESCE(st.repo_url, ''),
        runs.seq,
-       COALESCE((SELECT jsonb_agg(jsonb_build_object('type', r->>'type', 'name', r->>'name'))
-                 FROM (SELECT r FROM jsonb_array_elements(lc.resources) r LIMIT 3) x), '[]'),
-       COALESCE(jsonb_array_length(lc.resources), 0),
+       COALESCE(lc.summary, '[]'),
+       COALESCE(lc.resource_total, 0),
        lc.counts, `
 	_runSelectFrom = `
 FROM runs

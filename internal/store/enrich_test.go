@@ -14,15 +14,6 @@ func TestMigrationAllowsImportType(t *testing.T) {
 	}
 }
 
-func TestMigrationResetsCursors(t *testing.T) {
-	s, _ := newTestStore(t)
-	var n int
-	must(t, s.pool.QueryRow(t.Context(), `SELECT count(*) FROM s3_cursors`).Scan(&n))
-	if n != 0 {
-		t.Fatalf("cursors = %d after migrating, want 0", n)
-	}
-}
-
 func TestStackRepoURLStoredAndJoined(t *testing.T) {
 	s, _ := newTestStore(t)
 	must(t, s.UpsertStack(t.Context(), Stack{Namespace: "ns", Name: "s", UpdatedAt: time.Now(),

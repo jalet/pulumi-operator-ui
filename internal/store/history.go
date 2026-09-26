@@ -122,7 +122,7 @@ func (s *Store) InsertHistory(ctx context.Context, e HistoryEntry, seenAt time.T
 		                        ended_at, commit, counts, seen_at, exec_kind, exec_agent,
 		                        message, vcs_repo, seq)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-		ON CONFLICT (key) DO UPDATE SET
+		ON CONFLICT (bucket, key) DO UPDATE SET
 		    exec_kind  = CASE WHEN s3_history.exec_kind = ''  THEN EXCLUDED.exec_kind
 		                      ELSE s3_history.exec_kind END,
 		    exec_agent = CASE WHEN s3_history.exec_agent = '' THEN EXCLUDED.exec_agent
@@ -289,7 +289,7 @@ func (s *Store) linkOne(ctx context.Context, e HistoryEntry, now time.Time) (
 	switch {
 	case len(cands) > 1:
 		outcome = outcomeAmbiguous
-		err = setLinkState(ctx, tx, e.Key, "ambiguous", 0)
+		err = setLinkState(ctx, tx, e.Bucket, e.Key, "ambiguous", 0)
 	case len(cands) == 1:
 		outcome, runID = outcomeLinked, cands[0].id
 		err = linkRun(ctx, tx, e, runID, cands[0].source)
@@ -328,7 +328,7 @@ func linkRun(ctx context.Context, tx pgx.Tx, e HistoryEntry, runID int64, src Co
 			return fmt.Errorf("upgrade commit: %w", err)
 		}
 	}
-	return setLinkState(ctx, tx, e.Key, "linked", runID)
+	return setLinkState(ctx, tx, e.Bucket, e.Key, "linked", runID)
 }
 
 func importRun(ctx context.Context, tx pgx.Tx, e HistoryEntry) (int64, error) {
@@ -354,7 +354,7 @@ func importRun(ctx context.Context, tx pgx.Tx, e HistoryEntry) (int64, error) {
 	if err := enrichRun(ctx, tx, id, e); err != nil {
 		return 0, err
 	}
-	return id, setLinkState(ctx, tx, e.Key, "imported", id)
+	return id, setLinkState(ctx, tx, e.Bucket, e.Key, "imported", id)
 }
 
 func insertChanges(ctx context.Context, tx pgx.Tx, runID int64, counts map[string]int64) error {
@@ -369,13 +369,13 @@ func insertChanges(ctx context.Context, tx pgx.Tx, runID int64, counts map[strin
 	return nil
 }
 
-func setLinkState(ctx context.Context, tx pgx.Tx, key, state string, runID int64) error {
+func setLinkState(ctx context.Context, tx pgx.Tx, bucket, key, state string, runID int64) error {
 	var id *int64
 	if runID != 0 {
 		id = &runID
 	}
-	if _, err := tx.Exec(ctx, `UPDATE s3_history SET link_state = $2, run_id = $3 WHERE key = $1`,
-		key, state, id); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE s3_history SET link_state = $3, run_id = $4
+		WHERE bucket = $1 AND key = $2`, bucket, key, state, id); err != nil {
 		return fmt.Errorf("set link state: %w", err)
 	}
 	return nil

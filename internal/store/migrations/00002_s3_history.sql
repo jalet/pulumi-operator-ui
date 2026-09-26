@@ -51,6 +51,7 @@ CREATE TABLE run_changes (
 DROP TABLE run_changes;
 DROP TABLE s3_cursors;
 DROP TABLE s3_history;
+UPDATE runs SET commit_source = 'update' WHERE commit_source = 'history';
 ALTER TABLE runs DROP CONSTRAINT runs_commit_source_check;
 ALTER TABLE runs ADD CONSTRAINT runs_commit_source_check
     CHECK (commit_source IN ('', 'update', 'stack'));
