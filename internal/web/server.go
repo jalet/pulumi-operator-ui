@@ -305,7 +305,9 @@ func (s *server) stackPage(w http.ResponseWriter, r *http.Request) {
 		if !found {
 			// Everything newer fits on the latest page, which is the live one.
 			latest := stackQuery{Limit: q.Limit, Expand: q.Expand}
-			http.Redirect(w, r, withQuery("/stacks/"+ns+"/"+name, latest.values()), http.StatusSeeOther)
+			// Same-site: always a path under /stacks/, never a scheme or host.
+			target := withQuery("/stacks/"+ns+"/"+name, latest.values())
+			http.Redirect(w, r, target, http.StatusSeeOther) //nolint:gosec // a local path
 			return
 		}
 		q.Before, q.After = &anchor, nil

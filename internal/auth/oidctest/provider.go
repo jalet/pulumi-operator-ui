@@ -136,7 +136,9 @@ func (p *Provider) logout(w http.ResponseWriter, r *http.Request) {
 	p.loggedOut++
 	p.mu.Unlock()
 	if u := r.URL.Query().Get("post_logout_redirect_uri"); u != "" {
-		http.Redirect(w, r, u, http.StatusFound)
+		// A stub IdP for tests and local development: it sends the browser back where the
+		// client asked, as a real IdP does for registered URIs.
+		http.Redirect(w, r, u, http.StatusFound) //nolint:gosec // test IdP, see above
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -183,7 +185,8 @@ func (p *Provider) authorize(w http.ResponseWriter, r *http.Request) {
 	rq.Set("code", code)
 	rq.Set("state", q.Get("state"))
 	u.RawQuery = rq.Encode()
-	http.Redirect(w, r, u.String(), http.StatusFound)
+	// The redirect URI was checked against Options.RedirectURIs above (when set).
+	http.Redirect(w, r, u.String(), http.StatusFound) //nolint:gosec // test IdP, checked URI
 }
 
 func (p *Provider) token(w http.ResponseWriter, r *http.Request) {
