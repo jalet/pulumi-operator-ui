@@ -55,6 +55,7 @@ type Deps struct {
 	Location    *time.Location // time zone for day headers; nil = UTC
 	ThemeCSS    []byte         // color overrides from --theme-file; empty = built-in colors
 	Build       release.Info   // shown in the page footer
+	HSTS        bool           // served over https (the redirect URL): send Strict-Transport-Security
 
 	// heartbeat overrides the SSE heartbeat interval; zero means the default. Tests only.
 	heartbeat time.Duration
@@ -148,13 +149,18 @@ func New(d Deps) http.Handler {
 	protected("GET /fragments/session", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
-	return securityHeaders(mux)
+	return securityHeaders(mux, d.HSTS)
 }
 
-func securityHeaders(next http.Handler) http.Handler {
+func securityHeaders(next http.Handler, hsts bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("Content-Security-Policy", _csp)
+		h.Set("Cross-Origin-Opener-Policy", "same-origin")
+		h.Set("Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()")
+		if hsts {
+			h.Set("Strict-Transport-Security", "max-age=31536000")
+		}
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("X-Frame-Options", "DENY")

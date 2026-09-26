@@ -148,7 +148,9 @@ func TestSecurityHeadersEverywhere(t *testing.T) {
 			t.Errorf("%s: CSP = %q", path, h.Get("Content-Security-Policy"))
 		}
 		for k, want := range map[string]string{"X-Content-Type-Options": "nosniff",
-			"Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY"} {
+			"Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY",
+			"Cross-Origin-Opener-Policy": "same-origin",
+			"Permissions-Policy":         "camera=(), geolocation=(), microphone=(), payment=(), usb=()"} {
 			if h.Get(k) != want {
 				t.Errorf("%s: %s = %q, want %q", path, k, h.Get(k), want)
 			}
@@ -832,5 +834,20 @@ func TestFooterDevBuild(t *testing.T) {
 	if !strings.Contains(body, ">dev<") || strings.Contains(body, "/commit/") || strings.Contains(body, "<script>") {
 		_, foot, _ := strings.Cut(body, "<footer")
 		t.Errorf("dev footer wrong: <footer%s", foot)
+	}
+}
+
+// HSTS is only sent when the app is served over https (its redirect URL says so).
+func TestHSTSOnlyOverHTTPS(t *testing.T) {
+	if resp, _ := get(t, newServer(t, sampleReader(), nil), "/healthz"); resp.Header.Get("Strict-Transport-Security") != "" {
+		t.Error("HSTS sent without https")
+	}
+	h := New(Deps{Store: sampleReader(), Broker: events.NewBroker(), RequireAuth: passthrough,
+		AuthRoutes: func(*http.ServeMux) {}, Log: zerolog.Nop(), Now: func() time.Time { return _now },
+		HSTS: true})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	if resp, _ := get(t, srv, "/healthz"); resp.Header.Get("Strict-Transport-Security") != "max-age=31536000" {
+		t.Errorf("HSTS = %q", resp.Header.Get("Strict-Transport-Security"))
 	}
 }
