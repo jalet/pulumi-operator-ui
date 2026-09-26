@@ -16,6 +16,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/jalet/pulumi-operator-ui/internal/events"
+	"github.com/jalet/pulumi-operator-ui/internal/release"
 	"github.com/jalet/pulumi-operator-ui/internal/store"
 )
 
@@ -53,6 +54,7 @@ type Deps struct {
 	S3Interval  time.Duration  // 0 = S3 history off
 	Location    *time.Location // time zone for day headers; nil = UTC
 	ThemeCSS    []byte         // color overrides from --theme-file; empty = built-in colors
+	Build       release.Info   // shown in the page footer
 
 	// heartbeat overrides the SSE heartbeat interval; zero means the default. Tests only.
 	heartbeat time.Duration
@@ -95,12 +97,14 @@ func New(d Deps) http.Handler {
 		themeVersion = hex.EncodeToString(sum[:])[:12]
 		themeURL = "/static/theme.css?v=" + themeVersion
 	}
-	s := &server{now: d.Now, store: d.Store, broker: d.Broker, log: d.Log,
-		pages: parsePages(d.Now, themeURL), bases: parsePages(d.Now, themeURL),
-		heartbeat: d.heartbeat, s3Interval: d.S3Interval, loc: d.Location}
-	if s.loc == nil {
-		s.loc = time.UTC
+	loc := d.Location
+	if loc == nil {
+		loc = time.UTC
 	}
+	foot := newFooter(d.Build, loc)
+	s := &server{now: d.Now, store: d.Store, broker: d.Broker, log: d.Log,
+		pages: parsePages(d.Now, themeURL, foot), bases: parsePages(d.Now, themeURL, foot),
+		heartbeat: d.heartbeat, s3Interval: d.S3Interval, loc: loc}
 	if s.heartbeat == 0 {
 		s.heartbeat = sseHeartbeatIntervalDefault
 	}

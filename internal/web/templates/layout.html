@@ -22,6 +22,7 @@
 <main class="mx-auto max-w-6xl px-4 pb-12">
 {{block "content" .}}{{end}}
 </main>
+{{with build}}{{$f := .}}<footer class="mx-auto max-w-6xl px-4 pb-8 text-xs text-muted"><span>{{.Version}}</span>{{if .Short}} · {{if .URL}}<a class="hover:text-ink" href="{{.URL}}" target="_blank" rel="noopener noreferrer"><code>{{.Short}}</code></a>{{else}}<code>{{.Short}}{{if .Dirty}}-dirty{{end}}</code>{{end}}{{end}}{{with .CommitTime}} · committed <time datetime="{{$f.CommitISO}}">{{.}}</time>{{end}}{{with .BuildTime}} · built <time datetime="{{$f.BuildISO}}">{{.}}</time>{{end}}</footer>{{end}}
 </body>
 </html>{{end}}
 

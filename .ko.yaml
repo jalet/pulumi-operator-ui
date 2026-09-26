@@ -11,4 +11,10 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w -X main.version={{.Env.VERSION}}
+      - -s -w
+      - -X github.com/jalet/pulumi-operator-ui/internal/release.version={{.Env.VERSION}}
+      - -X github.com/jalet/pulumi-operator-ui/internal/release.commit={{.Git.FullCommit}}
+      - -X github.com/jalet/pulumi-operator-ui/internal/release.commitTime={{.Git.CommitDate}}
+      # Build time makes each rebuild of a commit a new image digest; kept by choice so the
+      # UI can show when the release was built.
+      - -X github.com/jalet/pulumi-operator-ui/internal/release.buildTime={{.Date}}

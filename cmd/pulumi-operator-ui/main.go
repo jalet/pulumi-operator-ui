@@ -21,16 +21,19 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/go-logr/zerologr"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	"github.com/jalet/pulumi-operator-ui/internal/auth"
 	"github.com/jalet/pulumi-operator-ui/internal/config"
 	"github.com/jalet/pulumi-operator-ui/internal/events"
 	"github.com/jalet/pulumi-operator-ui/internal/logs"
+	"github.com/jalet/pulumi-operator-ui/internal/release"
 	"github.com/jalet/pulumi-operator-ui/internal/s3hist"
 	"github.com/jalet/pulumi-operator-ui/internal/store"
 	"github.com/jalet/pulumi-operator-ui/internal/watch"
@@ -41,9 +44,6 @@ const (
 	pruneInterval   = time.Hour
 	shutdownTimeout = 10 * time.Second
 )
-
-// version is set at build time with -ldflags "-X main.version=...".
-var version = "dev"
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -71,7 +71,10 @@ func run(ctx context.Context, args []string, getenv func(string) string,
 	if err != nil {
 		return err
 	}
-	logger := zerolog.New(os.Stdout).With().Timestamp().Str("version", version).Logger()
+	build := release.Get()
+	logger := zerolog.New(os.Stdout).With().Timestamp().Str("version", build.Version).
+		Str("commit", build.ShortCommit()).Logger()
+	registerBuildInfo(build)
 	ctrl.SetLogger(zerologr.New(&logger))
 	sec, err := loadSecrets(cfg)
 	if err != nil {
@@ -112,7 +115,7 @@ func run(ctx context.Context, args []string, getenv func(string) string,
 	}
 	handler := web.New(web.Deps{Store: st, Broker: broker, RequireAuth: authn.Require,
 		AuthRoutes: authn.Routes, Log: logger, Now: time.Now, S3Interval: s3Interval,
-		Location: loc, ThemeCSS: cfg.Theme.CSS()})
+		Location: loc, ThemeCSS: cfg.Theme.CSS(), Build: build})
 	srv := newHTTPServer(cfg.HTTPAddr, handler)
 	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
 		return serveHTTP(ctx, srv)
@@ -249,4 +252,18 @@ func serveHTTP(ctx context.Context, srv *http.Server) error {
 		}
 		return nil
 	}
+}
+
+var _buildInfoOnce sync.Once
+
+// registerBuildInfo exports the running build as pou_build_info{version,commit} = 1. It
+// registers once per process: tests run the app more than once.
+func registerBuildInfo(b release.Info) {
+	_buildInfoOnce.Do(func() {
+		g := prometheus.NewGauge(prometheus.GaugeOpts{Name: "pou_build_info",
+			Help:        "The running build: always 1, labelled with the version and commit.",
+			ConstLabels: prometheus.Labels{"version": b.Version, "commit": b.Commit}})
+		g.Set(1)
+		ctrlmetrics.Registry.MustRegister(g)
+	})
 }

@@ -18,6 +18,7 @@ import (
 
 	"github.com/jalet/pulumi-operator-ui/internal/auth"
 	"github.com/jalet/pulumi-operator-ui/internal/events"
+	"github.com/jalet/pulumi-operator-ui/internal/release"
 	"github.com/jalet/pulumi-operator-ui/internal/store"
 )
 
@@ -798,5 +799,38 @@ func TestFoldHasStableID(t *testing.T) {
 		Type: store.RunTypePreview, State: store.RunStateSucceeded, StartedAt: &at, ObservedAt: at})
 	if _, body := get(t, newServer(t, r, nil), "/stacks/ns/app"); !strings.Contains(body, `<details class="rail-fold" id="fold-8"`) {
 		t.Error("the preview fold has no stable id")
+	}
+}
+
+func TestFooterShowsBuild(t *testing.T) {
+	h := New(Deps{Store: sampleReader(), Broker: events.NewBroker(), RequireAuth: passthrough,
+		AuthRoutes: func(*http.ServeMux) {}, Log: zerolog.Nop(), Now: func() time.Time { return _now },
+		Build: release.Info{Version: "0.1.0", Commit: "abcdef0123456789abcdef0123456789abcdef01",
+			CommitTime: time.Date(2026, 9, 25, 14, 2, 0, 0, time.UTC),
+			BuildTime:  time.Date(2026, 9, 26, 8, 12, 0, 0, time.UTC)}})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	_, body := get(t, srv, "/")
+	for _, want := range []string{"v0.1.0",
+		`href="https://github.com/jalet/pulumi-operator-ui/commit/abcdef0123456789abcdef0123456789abcdef01"`,
+		">abcdef0<", `committed <time datetime="2026-09-25T14:02:00Z">25 Sep 2026 14:02</time>`,
+		`built <time datetime="2026-09-26T08:12:00Z">26 Sep 2026 08:12</time>`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("footer lacks %s", want)
+		}
+	}
+}
+
+// A dev build without a commit still renders, and never links a non-SHA.
+func TestFooterDevBuild(t *testing.T) {
+	h := New(Deps{Store: sampleReader(), Broker: events.NewBroker(), RequireAuth: passthrough,
+		AuthRoutes: func(*http.ServeMux) {}, Log: zerolog.Nop(), Now: func() time.Time { return _now },
+		Build: release.Info{Version: "dev", Commit: "<script>", Dirty: true}})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	_, body := get(t, srv, "/")
+	if !strings.Contains(body, ">dev<") || strings.Contains(body, "/commit/") || strings.Contains(body, "<script>") {
+		_, foot, _ := strings.Cut(body, "<footer")
+		t.Errorf("dev footer wrong: <footer%s", foot)
 	}
 }
