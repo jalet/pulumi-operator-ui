@@ -34,6 +34,7 @@ type Options struct {
 	Claims       map[string]any // merged into every ID token; "sub" defaults to "user-1"
 	UserInfo     map[string]any // served at /userinfo
 	RedirectURIs []string       // empty = any
+	EndSession   bool           // advertise end_session_endpoint (RP-initiated logout)
 }
 
 type grant struct {
@@ -55,6 +56,7 @@ type Provider struct {
 	codes         map[string]grant
 	tokens        map[string]struct{}
 	nonceOverride string
+	loggedOut     int
 }
 
 // NewServer starts a provider; Close stops it.
@@ -86,6 +88,7 @@ func NewServer(o Options) (*Provider, error) {
 	mux.HandleFunc("GET /authorize", p.authorize)
 	mux.HandleFunc("POST /token", p.token)
 	mux.HandleFunc("GET /userinfo", p.userinfo)
+	mux.HandleFunc("GET /logout", p.logout)
 	p.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go func() { // ends when Close shuts the server down
 		defer close(p.done)
@@ -110,7 +113,7 @@ func (p *Provider) SetNonceOverride(n string) {
 }
 
 func (p *Provider) discovery(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, map[string]any{
+	doc := map[string]any{
 		"issuer":                                p.URL,
 		"authorization_endpoint":                p.URL + "/authorize",
 		"token_endpoint":                        p.URL + "/token",
@@ -120,7 +123,30 @@ func (p *Provider) discovery(w http.ResponseWriter, _ *http.Request) {
 		"subject_types_supported":               []string{"public"},
 		"id_token_signing_alg_values_supported": []string{"RS256"},
 		"code_challenge_methods_supported":      []string{"S256"},
-	})
+	}
+	if p.opts.EndSession {
+		doc["end_session_endpoint"] = p.URL + "/logout"
+	}
+	writeJSON(w, doc)
+}
+
+// logout ends the (stub) IdP session and returns to post_logout_redirect_uri.
+func (p *Provider) logout(w http.ResponseWriter, r *http.Request) {
+	p.mu.Lock()
+	p.loggedOut++
+	p.mu.Unlock()
+	if u := r.URL.Query().Get("post_logout_redirect_uri"); u != "" {
+		http.Redirect(w, r, u, http.StatusFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// LoggedOut counts calls to the end session endpoint.
+func (p *Provider) LoggedOut() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.loggedOut
 }
 
 func (p *Provider) jwks(w http.ResponseWriter, _ *http.Request) {

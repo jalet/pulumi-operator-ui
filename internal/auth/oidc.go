@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"net/http"
 	"net/url"
 	"strings"
@@ -63,6 +64,9 @@ type Authenticator struct {
 	provider *oidc.Provider
 	verifier *oidc.IDTokenVerifier
 	oauth    oauth2.Config
+
+	endSession string // the IdP's end_session_endpoint; "" = logout stays local
+	postLogout string // where the IdP returns after logout: the app root
 }
 
 type flowState struct {
@@ -107,17 +111,32 @@ func New(ctx context.Context, cfg Config, codec *Codec, rec EventRecorder, log z
 		scopes = append(scopes, "groups")
 	}
 	a.provider = provider
+	var meta struct {
+		EndSession string `json:"end_session_endpoint"`
+	}
+	if err := provider.Claims(&meta); err != nil {
+		return nil, fmt.Errorf("oidc discovery: %w", err)
+	}
+	a.endSession = meta.EndSession
+	ru, err := url.Parse(cfg.RedirectURL)
+	if err != nil {
+		return nil, fmt.Errorf("oidc redirect url: %w", err)
+	}
+	a.postLogout = (&url.URL{Scheme: ru.Scheme, Host: ru.Host, Path: "/"}).String()
 	a.verifier = provider.Verifier(&oidc.Config{ClientID: cfg.ClientID, Now: now})
 	a.oauth = oauth2.Config{ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret,
 		RedirectURL: cfg.RedirectURL, Endpoint: provider.Endpoint(), Scopes: scopes}
 	return a, nil
 }
 
-// Routes registers GET /auth/login, GET /auth/callback and POST /auth/logout.
+// Routes registers GET /auth/login, GET /auth/callback and POST /auth/logout. Logout is
+// guarded against cross-origin requests (Sec-Fetch-Site and Origin), so another site cannot
+// sign a viewer out.
 func (a *Authenticator) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /auth/login", a.login)
 	mux.HandleFunc("GET /auth/callback", a.callback)
-	mux.HandleFunc("POST /auth/logout", a.logout)
+	mux.Handle("POST /auth/logout",
+		http.NewCrossOriginProtection().Handler(http.HandlerFunc(a.logout)))
 }
 
 // Require passes requests with a valid session to next. Without one: htmx requests get
@@ -283,10 +302,31 @@ func (a *Authenticator) userInfoValues(ctx context.Context, tok *oauth2.Token,
 	return ClaimValues(claims, a.cfg.Claim), nil
 }
 
+// logout ends the app session and, when the IdP supports RP-initiated logout, its session
+// too. The IdP hop is a meta refresh rather than a redirect: CSP form-action 'self' would
+// block a redirect off-site after the form post.
 func (a *Authenticator) logout(w http.ResponseWriter, r *http.Request) {
 	a.clearCookie(w, sessionCookieName)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	if a.endSession == "" {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	sep := "?"
+	if strings.Contains(a.endSession, "?") {
+		sep = "&"
+	}
+	target := a.endSession + sep + url.Values{"client_id": {a.oauth.ClientID},
+		"post_logout_redirect_uri": {a.postLogout}}.Encode()
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := _logoutPage.Execute(w, target); err != nil {
+		a.log.Warn().Err(err).Msg("auth: render logout page")
+	}
 }
+
+// _logoutPage hands the browser to the IdP's end session endpoint.
+var _logoutPage = template.Must(template.New("logout").Parse(`<!doctype html>` +
+	`<meta http-equiv="refresh" content="0;url={{.}}"><title>Signing out</title>` +
+	`<p><a href="{{.}}">Continue signing out</a></p>`))
 
 func (a *Authenticator) session(r *http.Request) (Session, bool) {
 	c, err := r.Cookie(sessionCookieName)

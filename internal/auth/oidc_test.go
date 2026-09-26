@@ -64,10 +64,15 @@ type testApp struct {
 	clock  *clock
 }
 
-func newApp(t *testing.T, claims, userinfo map[string]any) *testApp {
+func newApp(t *testing.T, claims, userinfo map[string]any,
+	opts ...func(*oidctest.Options)) *testApp {
 	t.Helper()
-	idp, err := oidctest.NewServer(oidctest.Options{ClientID: "pou", ClientSecret: "secret",
-		Claims: claims, UserInfo: userinfo})
+	o := oidctest.Options{ClientID: "pou", ClientSecret: "secret", Claims: claims,
+		UserInfo: userinfo}
+	for _, opt := range opts {
+		opt(&o)
+	}
+	idp, err := oidctest.NewServer(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,5 +424,37 @@ func TestHtmxLoginReturnsToPage(t *testing.T) {
 	resp, _ = a.get(t, nr, "/fragments/runs/7/header", "HX-Request", "true")
 	if got := resp.Header.Get("HX-Redirect"); got != "/auth/login?return=%2F" {
 		t.Errorf("fragment without HX-Current-URL: HX-Redirect = %q", got)
+	}
+}
+
+func TestLogoutRejectsCrossSite(t *testing.T) {
+	a := newApp(t, _viewer, nil)
+	a.login(t)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, a.srv.URL+"/auth/logout", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	resp, _ := do(t, a.noRedirect(), req)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status %d, want 403 for a cross-site logout", resp.StatusCode)
+	}
+	if _, body := a.get(t, a.client, "/"); !strings.HasPrefix(body, "ok ") {
+		t.Fatal("cross-site logout ended the session")
+	}
+}
+
+func TestLogoutAtIdP(t *testing.T) {
+	a := newApp(t, _viewer, nil, func(o *oidctest.Options) { o.EndSession = true })
+	a.login(t)
+	resp, body := a.post(t, a.noRedirect(), "/auth/logout")
+	want := a.idp.URL + "/logout?client_id=pou&amp;post_logout_redirect_uri=" +
+		url.QueryEscape(a.srv.URL+"/")
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `http-equiv="refresh"`) ||
+		!strings.Contains(body, want) {
+		t.Fatalf("status %d body %s, want a refresh to %s", resp.StatusCode, body, want)
+	}
+	if a.sessionCookie(t) != nil {
+		t.Error("session cookie not cleared")
 	}
 }
