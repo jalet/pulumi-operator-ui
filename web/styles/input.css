@@ -109,11 +109,16 @@
   .tone-bad .dot { background: var(--pou-bad); }
   .tone-mute .dot { background: var(--pou-neutral); }
   .pulse-run { animation: pou-pulse 1.6s ease-in-out infinite; }
-  @media (prefers-reduced-motion: reduce) { .pulse-run { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .pulse-run, .rail-dot-run { animation: none; } }
   @keyframes pou-pulse { 50% { opacity: .35; } }
   .commit-approx { text-decoration: underline dotted; text-underline-offset: 3px; }
   .copy-btn {
     @apply rounded border border-line px-1.5 text-[11px] text-muted hover:text-ink;
   }
   .message-failed { color: var(--pou-bad-text); border-color: color-mix(in srgb, var(--pou-bad) 35%, transparent); background: color-mix(in srgb, var(--pou-bad) 6%, transparent); }
+  /* Without color-mix() the fallback would paint pills in the full status color. */
+  @supports not (color: color-mix(in srgb, red, red)) {
+    .tone-ok, .tone-run, .tone-att, .tone-bad, .tone-mute { background: transparent; }
+    .message-failed { background: transparent; border-color: var(--color-line); }
+  }
 }

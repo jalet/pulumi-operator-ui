@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -184,7 +185,7 @@ func TestPaletteContrast(t *testing.T) {
 		{"light focus on panel", cssVar(t, light, "--pou-focus"), lightPanel, 3},
 		{"dark focus on page", cssVar(t, dark, "--pou-focus"), darkPage, 3},
 	}
-	for _, tone := range []string{"ok", "run", "attention"} {
+	for _, tone := range []string{"ok", "run", "attention", "bad", "neutral"} {
 		checks = append(checks, struct {
 			name   string
 			fg, bg string
@@ -304,10 +305,18 @@ func TestInputCSSColorsAreTokens(t *testing.T) {
 	if !ok {
 		t.Fatal("input.css lacks /* tokens:end */")
 	}
-	color := regexp.MustCompile(`#[0-9a-fA-F]{3,8}\b|rgba?\(`)
+	color := regexp.MustCompile(`#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|oklch|oklab|lab|lch|hwb)\(`)
+	named := regexp.MustCompile(`(?i)\b(?:color|background(?:-color)?|border(?:-[a-z]+)?-color|fill|stroke|outline-color)\s*:\s*([a-z-]+)`)
+	allowed := []string{"var", "transparent", "currentcolor", "inherit", "initial", "none",
+		"color-mix", "linear-gradient"}
 	for _, part := range []string{before, after} {
 		if m := color.FindString(part); m != "" {
 			t.Errorf("input.css names a color outside the token blocks: %s", m)
+		}
+		for _, m := range named.FindAllStringSubmatch(part, -1) {
+			if !slices.Contains(allowed, strings.ToLower(m[1])) {
+				t.Errorf("input.css names a color outside the token blocks: %s", m[0])
+			}
 		}
 	}
 }
@@ -390,6 +399,61 @@ func TestThemeSheetCachedOnlyAtItsVersion(t *testing.T) {
 		if resp.StatusCode != http.StatusOK || body != css || resp.Header.Get("Cache-Control") != "no-store" {
 			t.Errorf("%s: status %d cache %q, want the sheet with no-store", path, resp.StatusCode,
 				resp.Header.Get("Cache-Control"))
+		}
+	}
+}
+
+// Only the version this build links is immutable; any other ?v= may be a rolling update's
+// other pod and must not be cached as ours.
+func TestStaticCachedOnlyAtItsVersion(t *testing.T) {
+	srv := newServer(t, sampleReader(), nil)
+	v := assetVersions()["app.css"]
+	if resp, _ := get(t, srv, "/static/app.css?v="+v); resp.Header.Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Errorf("current version cache = %q", resp.Header.Get("Cache-Control"))
+	}
+	for _, q := range []string{"?v=0123456789ab", ""} {
+		if resp, _ := get(t, srv, "/static/app.css"+q); resp.Header.Get("Cache-Control") != "no-cache" {
+			t.Errorf("app.css%s cache = %q, want no-cache", q, resp.Header.Get("Cache-Control"))
+		}
+	}
+}
+
+func TestCSSRespectsMotionAndOldBrowsers(t *testing.T) {
+	b, err := _static.ReadFile("static/app.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(b)
+	reduce := cssBlock(t, css, "@media (prefers-reduced-motion:reduce){", "}}")
+	if !strings.Contains(reduce, ".rail-dot-run") {
+		t.Error("the running rail dot keeps pulsing under reduced motion")
+	}
+	if !strings.Contains(css, "@supports not (color:color-mix(") {
+		t.Error("no fallback for browsers without color-mix()")
+	}
+}
+
+// Tailwind palette utilities would bypass the theme tokens.
+func TestTemplatesUseNoPaletteColors(t *testing.T) {
+	palette := regexp.MustCompile(`\b(?:bg|text|border|ring|outline|fill|stroke|from|via|to|decoration|divide|accent|caret|shadow)-(?:white|black|slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)\b`)
+	files, err := filepath.Glob("templates/*.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	goFiles, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range append(files, goFiles...) {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m := palette.FindString(string(b)); m != "" {
+			t.Errorf("%s uses the palette class %s", f, m)
 		}
 	}
 }

@@ -78,13 +78,14 @@ func parsePages(now func() time.Time, themeURL string) map[string]*template.Temp
 	return pages
 }
 
-// assetURLs maps each top-level static file to /static/<name>?v=<first 12 hex of sha256>.
-func assetURLs() map[string]string {
+// assetVersions maps each top-level static file to its content version: the first 12 hex
+// of its sha256.
+func assetVersions() map[string]string {
 	entries, err := fs.ReadDir(_static, "static")
 	if err != nil {
 		panic("invariant violated: embedded static: " + err.Error())
 	}
-	urls := make(map[string]string, len(entries))
+	versions := make(map[string]string, len(entries))
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
@@ -94,7 +95,16 @@ func assetURLs() map[string]string {
 			panic("invariant violated: embedded static " + e.Name() + ": " + err.Error())
 		}
 		sum := sha256.Sum256(b)
-		urls[e.Name()] = "/static/" + e.Name() + "?v=" + hex.EncodeToString(sum[:])[:12]
+		versions[e.Name()] = hex.EncodeToString(sum[:])[:12]
+	}
+	return versions
+}
+
+// assetURLs maps each top-level static file to /static/<name>?v=<version>.
+func assetURLs() map[string]string {
+	urls := map[string]string{}
+	for name, v := range assetVersions() {
+		urls[name] = "/static/" + name + "?v=" + v
 	}
 	return urls
 }

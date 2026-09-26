@@ -16,6 +16,9 @@ type railNode struct {
 type railItem struct {
 	Node *railNode   // exactly one of Node and Fold is set
 	Fold []store.Run // clean previews between two nodes, newest first
+	// FoldID is the oldest run in Fold: stable while newer previews join the fold, so the
+	// page can reopen a fold the viewer had open after a live update.
+	FoldID int64
 }
 
 type railDay struct {
@@ -64,8 +67,9 @@ func buildRail(changes, previews []store.Run, now time.Time, loc *time.Location,
 		if foldable && !expand {
 			if n := len(d.Items); n > 0 && d.Items[n-1].Fold != nil {
 				d.Items[n-1].Fold = append(d.Items[n-1].Fold, r)
+				d.Items[n-1].FoldID = r.ID // runs come newest first: the last one is the oldest
 			} else {
-				d.Items = append(d.Items, railItem{Fold: []store.Run{r}})
+				d.Items = append(d.Items, railItem{Fold: []store.Run{r}, FoldID: r.ID})
 			}
 			continue
 		}

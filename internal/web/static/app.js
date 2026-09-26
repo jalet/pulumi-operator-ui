@@ -12,3 +12,15 @@ document.addEventListener("click", (event) => {
     setTimeout(() => { button.textContent = label; }, 1500);
   });
 });
+// The rail is re-rendered on live updates; reopen the preview folds the viewer had open.
+let openFolds = [];
+document.addEventListener("htmx:beforeSwap", (event) => {
+  openFolds = Array.from(event.detail.target.querySelectorAll("details.rail-fold[open]"),
+    (d) => d.id);
+});
+document.addEventListener("htmx:afterSwap", () => {
+  for (const id of openFolds) {
+    document.getElementById(id)?.setAttribute("open", "");
+  }
+  openFolds = [];
+});

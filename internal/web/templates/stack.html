@@ -27,12 +27,12 @@
 
 {{define "rail"}}<div class="rail"{{if .Live}} hx-get="{{.Pager.Live}}" hx-trigger="sse:{{stackEvent .Stack.Namespace .Stack.Name}}, sse:resync" hx-swap="outerHTML"{{end}}>
 {{range .Days}}<div class="rail-day">{{.Label}}</div>
-{{range .Items}}{{if .Node}}{{template "rail-node" .Node}}{{else}}<details class="rail-fold"><summary>{{len .Fold}} {{if eq (len .Fold) 1}}preview{{else}}previews{{end}}, no changes</summary>{{range .Fold}}<a class="rail-fold-run" href="/runs/{{.ID}}"><span class="font-mono text-xs">{{.UpdateName}}</span> <span class="text-muted">{{with .StartedAt}}{{age .}}{{end}}</span></a>{{end}}</details>{{end}}{{end}}
+{{range .Items}}{{if .Node}}{{template "rail-node" .Node}}{{else}}<details class="rail-fold" id="fold-{{.FoldID}}"><summary>{{len .Fold}} {{if eq (len .Fold) 1}}preview{{else}}previews{{end}}, no changes</summary>{{range .Fold}}<a class="rail-fold-run" href="/runs/{{.ID}}"><span class="font-mono text-xs">{{.UpdateName}}</span> <span class="text-muted">{{with .StartedAt}}{{age .}}{{end}}</span></a>{{end}}</details>{{end}}{{end}}
 {{else}}<p class="py-8 text-center text-muted">No runs yet.</p>{{end}}
 </div>{{end}}
 
 {{define "rail-node"}}{{$r := .Run}}<div id="run-{{$r.ID}}" class="rail-node" hx-get="/fragments/runs/{{$r.ID}}/row" hx-trigger="sse:run-{{$r.ID}}" hx-swap="outerHTML">
-  <span class="rail-dot{{if eq $r.State "failed"}} rail-dot-bad{{else if .Drift}} rail-dot-att{{else if eq $r.Type "refresh"}} rail-dot-hollow{{else if eq $r.State "running" "pending"}} rail-dot-run{{end}}"></span>
+  <span class="rail-dot{{if eq $r.State "failed"}} rail-dot-bad{{else if .Drift}} rail-dot-att{{else if eq $r.State "running" "pending"}} rail-dot-run{{else if eq $r.Type "refresh"}} rail-dot-hollow{{end}}"></span>
   <span class="rail-num"{{if $r.Seq}} title="counts updates in the state bucket's history"{{end}}>{{with $r.Seq}}#{{.}}{{end}}</span>
   <div class="min-w-0">
     <div class="flex flex-wrap items-center gap-2"><a class="font-semibold hover:underline" href="/runs/{{$r.ID}}">{{$r.Type}}</a>{{if .Drift}}<span class="pill tone-att">drift</span>{{end}}{{with origin $r}}<span class="pill tone-{{.Tone}}"{{with .Agent}} title="{{.}}"{{end}}>{{.Label}}</span>{{end}}{{template "commit" $r}}{{if ne $r.State "succeeded"}}{{template "pill" (stateBadge $r.State)}}{{end}}<span class="font-mono text-xs">{{changeSummary (timelineCounts $r)}}</span></div>

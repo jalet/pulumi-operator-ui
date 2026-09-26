@@ -10,20 +10,23 @@ var (
 	_sha      = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
 )
 
-// repoURL returns the GitHub web URL for a Stack's projectRepo, or for the history file's
-// vcs repo when the Stack has none. Only github.com, and only an owner/repo made of safe
-// characters, ever yields a link.
+// repoURL links a run's commit to GitHub: the Stack's repo when it is a GitHub repo, else the
+// repo the history recorded (vcs.*), else nothing.
 func repoURL(stackRepo, vcsRepo string) (string, bool) {
-	path, ok := githubPath(stackRepo)
-	if !ok && stackRepo == "" {
-		if rest, found := strings.CutPrefix(vcsRepo, "github.com/"); found {
-			path, ok = rest, true
+	if path, ok := githubPath(stackRepo); ok {
+		if u, ok := githubRepoURL(path); ok {
+			return u, true
 		}
 	}
-	if !ok {
-		return "", false
+	if rest, ok := strings.CutPrefix(vcsRepo, "github.com/"); ok {
+		return githubRepoURL(rest)
 	}
-	owner, repo, found := strings.Cut(strings.TrimSuffix(path, ".git"), "/")
+	return "", false
+}
+
+// githubRepoURL validates "owner/repo" (with an optional .git or trailing slash).
+func githubRepoURL(path string) (string, bool) {
+	owner, repo, found := strings.Cut(strings.TrimSuffix(strings.TrimSuffix(path, "/"), ".git"), "/")
 	if !found || !_repoPart.MatchString(owner) || !_repoPart.MatchString(repo) ||
 		owner == "." || owner == ".." || repo == "." || repo == ".." {
 		return "", false

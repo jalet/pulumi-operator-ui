@@ -101,3 +101,16 @@ func TestRailRunningPreviewIsANode(t *testing.T) {
 		t.Fatalf("(-want +got):\n%s", diff)
 	}
 }
+
+// A fold keeps its identity as newer previews join it, so a viewer's open fold stays open.
+func TestRailFoldIDIsOldestPreview(t *testing.T) {
+	now := time.Date(2026, 9, 25, 18, 0, 0, 0, time.UTC)
+	up := railRun("up1", store.RunTypeUp, store.RunStateSucceeded, now.Add(-time.Hour))
+	p1 := railRun("p1", store.RunTypePreview, store.RunStateSucceeded, now.Add(-30*time.Minute))
+	p2 := railRun("p2", store.RunTypePreview, store.RunStateSucceeded, now.Add(-10*time.Minute))
+	up.ID, p1.ID, p2.ID = 1, 2, 3
+	days := buildRail([]store.Run{up}, []store.Run{p2, p1}, now, time.UTC, false)
+	if fold := days[0].Items[0]; fold.Fold == nil || fold.FoldID != 2 {
+		t.Fatalf("first item %+v, want a fold with id 2", fold)
+	}
+}

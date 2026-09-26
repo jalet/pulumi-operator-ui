@@ -52,3 +52,15 @@ func TestCommitURL(t *testing.T) {
 		t.Errorf("no repo: %q", got)
 	}
 }
+
+func TestRepoURLFallsBackToHistory(t *testing.T) {
+	for _, tc := range []struct{ stack, vcs, want string }{
+		{"https://github.com/o/r/", "", "https://github.com/o/r"},
+		{"https://gitlab.com/g/p", "github.com/o/r", "https://github.com/o/r"},
+		{"https://github.com/o/r/extra", "github.com/x/y", "https://github.com/x/y"},
+	} {
+		if got, ok := repoURL(tc.stack, tc.vcs); !ok || got != tc.want {
+			t.Errorf("repoURL(%q, %q) = %q %v, want %q", tc.stack, tc.vcs, got, ok, tc.want)
+		}
+	}
+}

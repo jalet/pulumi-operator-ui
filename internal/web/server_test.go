@@ -349,7 +349,7 @@ func TestStaticIntegrity(t *testing.T) {
 
 func TestStaticHeaders(t *testing.T) {
 	srv := newServer(t, sampleReader(), nil)
-	resp, _ := get(t, srv, "/static/htmx.min.js")
+	resp, _ := get(t, srv, "/static/htmx.min.js?v="+assetVersions()["htmx.min.js"])
 	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/javascript") {
 		t.Errorf("Content-Type = %q", ct)
 	}
@@ -780,5 +780,23 @@ func TestStackPagePreviewsToggle(t *testing.T) {
 	}
 	if !strings.Contains(all, `id="run-8"`) || !strings.Contains(all, `href="/stacks/ns/app"`) {
 		t.Error("expanded page does not list the preview as a node or lacks the toggle back")
+	}
+}
+
+func TestRunningRefreshPulses(t *testing.T) {
+	r := sampleReader()
+	r.runs[0].Type, r.runs[0].State, r.runs[0].EndedAt = store.RunTypeRefresh, store.RunStateRunning, nil
+	if _, body := get(t, newServer(t, r, nil), "/stacks/ns/app"); !strings.Contains(body, `class="rail-dot rail-dot-run"`) {
+		t.Error("a running refresh does not show the pulsing dot")
+	}
+}
+
+func TestFoldHasStableID(t *testing.T) {
+	r := sampleReader()
+	at := _now.Add(-time.Minute)
+	r.runs = append(r.runs, store.Run{ID: 8, Namespace: "ns", UpdateName: "pv1", StackName: "app",
+		Type: store.RunTypePreview, State: store.RunStateSucceeded, StartedAt: &at, ObservedAt: at})
+	if _, body := get(t, newServer(t, r, nil), "/stacks/ns/app"); !strings.Contains(body, `<details class="rail-fold" id="fold-8"`) {
+		t.Error("the preview fold has no stable id")
 	}
 }

@@ -110,7 +110,7 @@ func New(d Deps) http.Handler {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("GET /readyz", s.readyz)
-	mux.Handle("GET /static/", staticHandler())
+	mux.Handle("GET /static/", staticHandler(assetVersions()))
 	if themeURL != "" {
 		css := d.ThemeCSS
 		mux.HandleFunc("GET /static/theme.css", func(w http.ResponseWriter, r *http.Request) {
@@ -158,7 +158,7 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-func staticHandler() http.Handler {
+func staticHandler(versions map[string]string) http.Handler {
 	sub, err := fs.Sub(_static, "static")
 	if err != nil {
 		panic("invariant violated: embedded static: " + err.Error())
@@ -169,7 +169,14 @@ func staticHandler() http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		// Only this build's version is immutable: during a rolling update a page from the
+		// other pod may ask for its version here, which must not be cached as ours.
+		name := strings.TrimPrefix(r.URL.Path, "/static/")
+		if v, ok := versions[name]; ok && r.URL.Query().Get("v") == v {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
 		files.ServeHTTP(w, r)
 	})
 }
