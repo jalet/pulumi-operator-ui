@@ -5,3 +5,11 @@ It is exposed through the HTTPRoute for: {{ join ", " .Values.httpRoute.hostname
 No HTTPRoute is rendered; set httpRoute.enabled=true or expose the "http" port yourself.
 {{- end }}
 The redirect URL registered with your IdP must be {{ .Values.oidc.redirectURL }}.
+{{- if not .Values.oidc.localLogout }}
+If your IdP supports RP-initiated logout, also register the app root (the redirect URL's
+origin with path /) as a post-logout redirect URI, or set oidc.localLogout=true.
+{{- end }}
+{{- if not .Values.namespaces }}
+Watching all namespaces: the ClusterRole also reads pod logs cluster-wide. Set namespaces to
+limit it to the namespaces your Stacks live in.
+{{- end }}

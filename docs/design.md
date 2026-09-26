@@ -1,263 +1,203 @@
-# pulumi-operator-ui design
+# Architecture
 
-- **Status:** proposed
-- **Date:** 2026-09-25
-- **First consumer:** the author's own clusters
+pulumi-operator-ui is a read-only web UI for the
+[Pulumi Kubernetes Operator](https://github.com/pulumi/pulumi-kubernetes-operator) (PKO) v2.
+This document describes how it works: what it reads, what it stores, how pages stay live, and
+where its security boundaries are. The [README](../README.md) covers installing and running it.
 
-## Context
+## What PKO exposes
 
-The Pulumi Kubernetes Operator (PKO) v2 reconciles `Stack` CRs by creating `Workspace` pods and
-`Update` objects. PKO ships no UI. The only ways to see what a preview or up changed are
-`kubectl get update` and reading pod logs, and completed `Update` objects are
-garbage-collected, so history disappears.
+PKO reconciles `Stack` resources by running Pulumi in a workspace pod and recording each
+operation as an `Update`. It ships no UI, and completed `Update` objects are garbage-collected,
+so their history disappears.
 
-pulumi-operator-ui is a small, read-only web UI for tracking stacks, previews and deploys, in
-the spirit of the Renovate Operator's dashboard. It is its own project with its own release
-cycle, and it installs separately from the operator.
-
-### What PKO exposes (2.9.1)
-
-| Object | Useful fields |
+| Object | Fields the app reads |
 |---|---|
-| `Stack` (`pulumi.com/v1`) | `status.conditions` (Ready, Reconciling, Stalled); `status.lastUpdate` (name, type, state, message, `lastAttemptedCommit`, `lastSuccessfulCommit`, `lastResyncTime`) |
-| `Update` (`auto.pulumi.com/v1alpha1`) | `spec.type`, `spec.ttlAfterCompleted`; `status.conditions` (Progressing, Failed, Complete), `startTime`, `endTime`, `message`, `outputs` (Secret name) |
-| `Workspace` (`auto.pulumi.com/v1alpha1`) | the pod that runs the program |
+| `Stack` (`pulumi.com/v1`) | `status.conditions` (Ready, Reconciling, Stalled); `status.lastUpdate` (name, type, state, message, commits); `status.currentUpdate`; `spec.backend`, `spec.stack`, `spec.projectRepo`; `status.projectInfo` |
+| `Update` (`auto.pulumi.com/v1alpha1`) | `spec.type`; `status.conditions`, `startTime`, `endTime`, `message` |
+| Workspace pod (`<stack>-workspace-0`) | its log (`pods/log`), which carries the Pulumi engine output |
 
-`Update.status` has no change summary. Per-resource changes are visible only in the engine
-output (the logs) and, for S3 DIY backends, in `.pulumi/history/<project>/<stack>/*.history.json`.
+`Update.status` has no change summary. Which resources changed is only in the engine output
+and, for S3 DIY backends, as counts in Pulumi's own `.pulumi/history/<project>/<stack>/`
+files.
 
-## Goals
-
-- List every Stack with its readiness, last preview, last up, commit and age.
-- A per-stack timeline of runs (preview, up, refresh, destroy) with state, duration and commit.
-- A per-run page showing change counts, the resource list, the operator message and the raw
-  log.
-- History that survives `Update` GC and pod restarts.
-- Live updates without reloading the page.
-
-## Non-goals
-
-- Any write to the cluster: no triggering, approving or cancelling runs.
-- Decrypting secrets or reading stack checkpoints.
-- Multi-cluster support in v1. One deployment watches one cluster.
-
-## Decisions
-
-| Topic | Decision |
-|---|---|
-| Access to the cluster | Read-only: get/list/watch on stacks and updates (phase 1); phase 2 adds get on `pods` and `pods/log` |
-| Language and UI | Go, `html/template` + htmx, live refresh over SSE; one binary, no Node toolchain |
-| UI styling | Tailwind CSS v4 via its standalone CLI (pinned in mise); the compiled `app.css` is committed and CI checks it is current. Playground brand theme, following the OS light or dark setting; fonts self-hosted |
-| Persistence | PostgreSQL (pgx, embedded migrations). example runs a dedicated CNPG cluster for it |
-| Authentication | Built-in OIDC (go-oidc, x/oauth2), custom CA bundle supported, HMAC-signed session cookie |
-| Authorization | Allowlist on a configurable claim (groups or roles). Everyone on the allowlist sees everything |
-| Change details | Workspace pod logs, always on. S3 history, **opt-in**, off by default |
-| Packaging | ko-built distroless nonroot image `ghcr.io/jalet/pulumi-operator-ui`; Helm chart `oci://ghcr.io/jalet/helm-charts/pulumi-operator-ui`; both public |
-
-## Architecture
+## Components
 
 ```
-            Kubernetes API                         S3 bucket (optional)
-   Stack / Update / Workspace / Pod / pods/log     .pulumi/history/*.json
-                 |                                        |
-          internal/watch ----> internal/record      internal/s3hist
-                 |                    |                   |
-          internal/logs --------------+---> internal/store <+
-                                               |
-                                         internal/web  <-- internal/auth (OIDC)
-                                               |
-                                    browser (htmx + SSE)
+            Kubernetes API                           S3 bucket (optional)
+   Stack / Update / pods/log                         .pulumi/history/*.history.json
+        |                 |                                   |
+  internal/watch    internal/logs                       internal/s3hist
+        |                 |                                   |
+  internal/record         |                                   |
+        +-----------------+------> internal/store <-----------+
+                                         |    \
+                                         |     internal/events (in-process broker)
+                                         |              |
+                          internal/web (pages, fragments, /events SSE) <-- internal/auth (OIDC)
+                                         |
+                                 browser (htmx + SSE)
 ```
 
-| Package | Responsibility | Depends on |
-|---|---|---|
-| `internal/watch` | controller-runtime cache watching Stack, Update, Workspace and workspace Pods; namespaces configurable, all by default | Kubernetes API |
-| `internal/record` | Maps Update and Stack events to idempotent upserts on `runs`: Update UID, stack, type, commit, start, end, state, message. The Update CRD carries no commit, so the commit comes from the owning Stack: `status.currentUpdate.commit` or `status.lastUpdate.lastAttemptedCommit` when that entry names this Update (`commit_source=update`, exact), otherwise `lastAttemptedCommit` when the Update is first seen (`commit_source=stack`, shown as approximate). A restart re-lists and converges, and every Stack reconcile inserts its `status.lastUpdate` as a run if that run is not recorded yet | watch, store |
-| `internal/logs` | The workspace pod is expected to be long-lived and reused across Updates (to be confirmed in the spike), so the log is sliced per run: read with `sinceTime` set to the Update's `startTime`, stop at `endTime`. If the app restarts mid-run, it re-reads from `startTime` and replaces the stored text, so capture is idempotent. Stores ANSI-stripped text, capped at 1 MiB, then parses the resource lines and the `Resources:` summary with a pure parser | watch, store |
-| `internal/s3hist` | **Optional.** Only built when `--s3-history.enabled=true`; nothing else imports it. Every 5 minutes, lists history files newer than the last one seen (`StartAfter`) and stores `kind`, timestamps, `result`, the `resourceChanges` counts and `git.head`, matching each entry to an `up`, `refresh` or `destroy` run of the same stack by time window (see S3 history findings). DIY history does not record previews, so preview runs never have S3 counts | S3, store |
-| `internal/store` | Schema, queries and retention: `--retention` (default 180 days) for runs, logs and changes; `--auth-retention` (default 30 days) for auth events, which hold email addresses and claim values | PostgreSQL |
-| `internal/auth` | OIDC login and callback (authorization code with PKCE, `state` and `nonce`), sessions with a fixed lifetime, claim allowlist middleware, auth event recording | IdP, store |
-| `internal/web` | Pages, `/events` SSE stream, `/healthz`, `/readyz`; `/metrics` on a separate listener (`--metrics-addr`) | store, auth |
-
-### Data model
-
-| Table | Key columns |
+| Package | Responsibility |
 |---|---|
-| `stacks` | namespace, name, ready, reconciling, stalled, last_commit (`lastSuccessfulCommit`), updated_at, deleted_at |
-| `runs` | id (identity), namespace, update_name (unique with namespace), uid (Update UID, null when backfilled), stack_name, type, commit, commit_source (`update` or `stack`), state, message, started_at, ended_at, observed_at, log_status (`''`, `pending`, `captured`, `unavailable`) |
-| `run_changes` | run_id, source (`log` or `s3`), create, update, delete, replace, same, resources (jsonb) |
-| `auth_events` | at, subject, email, outcome (`login`, `denied`, `error`), claim_values |
+| `internal/watch` | A controller-runtime cache of Stacks and Updates, in all namespaces or a configured list; reconciles each change into the store |
+| `internal/record` | Maps a Stack or Update to store rows. An Update has no commit field, so the commit comes from the owning Stack: exact when `status.currentUpdate` or `status.lastUpdate` names this Update, approximate (shown dotted) otherwise. Every reconcile also backfills the Stack's `status.lastUpdate` as a run, so runs whose Update was garbage-collected while the app was down still appear |
+| `internal/logs` | For each finished run, reads its slice of the workspace pod log (between the run's start and end, bounded by the neighbouring runs on the same workspace), waits for the run's completed line, and parses the changed resources and the `Resources:` summary |
+| `internal/s3hist` | Optional. Lists each Stack's history prefix page by page from a stored cursor, parses each new history file, and links it to a run by stack, type and time, or imports it as a run the app never saw |
+| `internal/store` | PostgreSQL schema (embedded goose migrations), queries, retention pruning; publishes a change event after each committed change |
+| `internal/events` | An in-process broker that fans change events out to SSE subscribers |
+| `internal/auth` | OIDC login (authorization code with PKCE, `state`, `nonce`), signed session cookies, the claim allowlist, logout, sign-in event recording |
+| `internal/web` | Pages and htmx fragments, `/events`, static assets, `/healthz` and `/readyz` |
+| `internal/theme` | Parses the optional color theme and renders it as CSS custom properties |
+| `internal/release` | The running build's version, commit and times, stamped by `.ko.yaml` |
 
-Runs are keyed by namespace and Update name, not UID: a run backfilled from `Stack.status.lastUpdate` has no UID, and the Update seen later merges into the same row. Upserts never move a terminal state back to running, and keep the first non-empty commit unless an exact (`update`) commit arrives.
+`/metrics` is served on a separate listener (`--metrics-addr`).
 
-The run page shows `s3` counts when they exist and otherwise falls back to `log`.
+## Data model
 
-A Stack removed from the cluster is soft-deleted (`deleted_at` set) and hidden from the default
-list. Its runs stay and follow normal retention. The row is purged once no runs remain.
-
-### Retention
-
-`--retention` (default 180 days) prunes `runs` and `run_changes`. `--auth-retention`
-(default 30 days) prunes `auth_events`. Sign-in events hold personal data (subject, email and
-claim values), so the default is short; choose the period your own data protection
-obligations call for.
-
-### Known limits
-
-- If the app is down for longer than an Update's `ttlAfterCompleted`, that Update is gone
-  before it is recorded. The startup backfill from `Stack.status.lastUpdate` recovers only the
-  latest run per stack, and runs recovered this way have `log_status=missing`.
-
-### S3 history is opt-in
-
-- It is off by default: `--s3-history.enabled=false`, chart value `s3History.enabled: false`.
-- While off, the binary constructs no AWS client and reads no AWS config or credentials. The
-  chart renders no AWS env and no S3 egress. The app runs fully on CR status plus logs.
-- When on, it discovers each Stack's bucket, prefix and region from `spec.backend` and needs
-  standard AWS SDK credentials (a dedicated read-only IAM user, never PKO's).
-- The IAM permissions it needs are `s3:ListBucket` conditioned on
-  `s3:prefix` = `<prefix>/.pulumi/history/*`, and `s3:GetObject` on
-  `<prefix>/.pulumi/history/*/*.history.json` only, which excludes the `.checkpoint.json`
-  files (full stack state). `kms:Decrypt` is needed only when the bucket uses a
-  customer-managed KMS key, conditioned on `kms:ViaService`; the AWS-managed `aws/s3` key
-  needs no IAM KMS permission.
-- It stores only `kind`, `startTime`, `endTime`, `result`, the `resourceChanges` counts and
-  `environment["git.head"]`. It never stores `config` (it carries encrypted secret values) or
-  any other `environment` field (it carries commit author and committer emails).
-- Misconfiguration or S3 errors only mark runs with `s3_status=error` and increment a metric. They
-  never fail readiness.
-
-### Live updates
-
-The store publishes change notifications on an in-process broker. `/events` streams them as SSE
-and htmx swaps the affected fragments (stack row, run row, run header). A single replica is
-assumed. If replicas are ever added, the broker would move to Postgres `LISTEN/NOTIFY`, but that
-is not built in v1.
-
-The single replica is an accepted availability risk for an internal read-only tool, and an
-explicit exception to the multi-AZ baseline (ARCH-003). While the pod is down, only the UI is
-unavailable. Runs are recovered on restart through the re-list, except those covered in Known
-limits.
-
-## Error handling
-
-| Failure | Behaviour |
+| Table | Holds |
 |---|---|
-| Database unreachable | `/readyz` fails, and the watch loop retries with backoff |
-| Kubernetes API watch error | controller-runtime re-lists, and record upserts converge |
-| Pod gone before its log was read | `log_status=missing`; the run still shows CR status |
-| Log exceeds 1 MiB | Truncated and flagged; parsing uses the kept part plus the tail summary if present |
-| Parser finds no summary | `log_status=unparsed`; the raw log is still shown |
-| S3 error (opt-in only) | `s3_status=error` plus a metric; log counts are still shown |
-| OIDC claim not on the allowlist | 403 page, and the attempt is recorded in `auth_events` and logged |
+| `stacks` | One row per Stack: readiness, last commit, backend, project, repo, S3 status; soft-deleted when the Stack is removed |
+| `runs` | One row per run (preview, up, refresh, destroy, import), keyed by namespace and Update name: type, state, commit and its source, message, times, origin (operator or CLI), number (`seq`), log capture status |
+| `run_changes` | Per run and source (`log` or `s3`): change counts, the changed resources with their diffs (log only), and a stored summary of the first three resources for lists |
+| `s3_history` | One row per history file, keyed by bucket and key: parsed fields and its link state |
+| `s3_cursors` | Per bucket and prefix: the last listed key and how many history keys precede it, which numbers runs |
+| `auth_events` | Sign-ins, denials and errors: time, subject, email, outcome, claim values |
 
-## Security
+Runs are keyed by namespace and Update name, not UID: a run backfilled from
+`Stack.status.lastUpdate` has no UID, and the Update seen later merges into the same row.
+Upserts never move a terminal state back, keep the first non-empty commit unless an exact one
+arrives, and write (and publish) nothing when nothing changed.
 
-- The app is read-only by RBAC: its ClusterRole contains no write verbs.
-- It never reads Secrets, including the Update outputs Secret.
-- Pulumi masks secret values as `[secret]` in engine output. Stored logs are still treated as
-  sensitive: every page requires a session, and cookies are `Secure`, `HttpOnly`, `SameSite=Lax`.
-- Sessions have a fixed absolute lifetime (`--session.max-age`, default 8h). The cookie is
-  HMAC-signed, and a previous key (`--session.previous-key-file`) is accepted for verification
-  so the key can be rotated without logging everyone out. The OIDC flow uses PKCE, `state` and
-  `nonce`.
-- htmx is vendored into the binary and nothing loads from a CDN. Responses set a strict
-  `Content-Security-Policy`, `X-Content-Type-Options: nosniff` and `Referrer-Policy`. Stored logs
-  are always rendered HTML-escaped.
-- `/healthz` and `/readyz` are unauthenticated and return no data. `/metrics` is served on a
-  separate listener (`--metrics-addr`) that is not exposed through the Gateway.
-- It serves TLS only through the cluster Gateway, and the OIDC provider is trusted via a
-  configurable CA bundle.
-- The chart ships a NetworkPolicy: ingress only from the Gateway (and the metrics scraper on the
-  metrics port), egress only to the Kubernetes API, the CNPG cluster, the IdP and, when S3
-  history is enabled, S3.
-- Data at rest: the CNPG cluster's volumes and its backups must be encrypted (an encrypted
-  storage class, and an encrypted backup target with a KMS CMK where available). S3 history is
-  read in the configured region, `eu-north-1` by default.
-- The container runs nonroot with a read-only root filesystem. The service-account token is
-  mounted only for the watch and is bound to the read-only ClusterRole.
+## Engine log capture
+
+- A run becomes `pending` once it is finished and both of its times are known.
+- The capture reads the workspace pod's log from the run's start, padded by 5 seconds for clock
+  skew but never before the previous run on the workspace ended or after the next one started.
+- It keeps only `pulumi` logger lines, stops at the run's `<op> completed` line, and retries
+  (with backoff, for up to 10 minutes after the run ended) while that line has not appeared.
+- The parser keeps each changed resource's type, name, URN and property diff, and the summary
+  counts. It skips the `pulumi:pulumi:Stack` resource and the stack outputs.
+- Values under keys that look like credentials (password, secret, token, private, access or API
+  key) are stored as `[redacted]`, including whole maps and lists. `--logs.diffs=false` stores
+  only counts and resource names.
+- Caps: 4 MiB read per run, 1 MiB stored per run, 64 KiB per diff, 2000 resources.
+
+## S3 history
+
+Off by default (`--s3-history.enabled`). When on, each Stack's bucket, prefix and region come
+from its `spec.backend`; S3 compatible endpoints (`?endpoint=`) are not supported.
+
+- Needs `s3:ListBucket` on the history prefix and `s3:GetObject` on
+  `*.history.json` and `*.history.json.gz` only, never the `.checkpoint.json` state files
+  ([policy](iam/s3-history-policy.json)).
+- From each file it stores the kind, times, result, change counts, the commit
+  (`environment["git.head"]`), the update message, the execution origin (`exec.kind`,
+  `exec.agent`) and the repository (`vcs.*`). It never decodes `config` or any other
+  `environment` field.
+- A history file that is deleted or archived is passed over and counted; access denied stops
+  that Stack's history (it usually means a missing permission for the whole bucket) and shows
+  on the Stack's page.
+- Files are capped at 1 MiB, compressed and expanded.
+- The legacy non-project layout (`PULUMI_DIY_BACKEND_LEGACY_LAYOUT`) is not supported.
+
+## Live updates
+
+The store publishes an event after each committed change. `/events` streams them as SSE, and
+htmx re-fetches the affected fragment: a stack row, a run row, a run header, or a stack's
+timeline. A viewer may hold 8 streams and the process 256; each write has a 10 second deadline,
+and a stream ends when its session expires.
+
+The broker is in-process, so the app runs as a single replica. While the pod restarts only the
+UI is unavailable: the watch re-lists on start and converges.
+
+## Retention
+
+`--retention` (default 180 days) prunes `runs`, their `run_changes` and `s3_history`.
+`--auth-retention` (default 30 days) prunes `auth_events`. Sign-in events hold personal data
+(subject, email and claim values), so the default is short; choose the period your own data
+protection obligations call for.
+
+A run backfilled from a Stack's `status.lastUpdate` is recorded again after it is pruned, for as
+long as the Stack still reports it: it is that Stack's last run.
+
+## Security model
+
+- **Read-only.** RBAC grants only `get`, `list` and `watch` on `stacks` and `updates`, and `get`
+  on `pods/log`. The app never reads Secrets, including the Update outputs Secret. Listing the
+  namespaces to watch limits `pods/log` to them; watching all namespaces grants it
+  cluster-wide.
+- **Authentication.** Every page and stream requires an OIDC session. The issuer and the
+  redirect URL must be https (http only for localhost). Access is an allowlist on one claim;
+  everyone allowed sees everything. With `--auth.claim=email` only verified addresses count.
+- **Sessions** are HMAC-signed `__Host-` cookies (`Secure`, `HttpOnly`, `SameSite=Lax`) that
+  expire after `--session.max-age` (default 8h), also counted from when they were issued, so
+  lowering the setting shortens existing sessions. Sessions are not stored server-side: to end
+  every session at once, rotate the session key without keeping the previous one.
+- **Logout** is a POST guarded against cross-origin requests. When the IdP advertises an end
+  session endpoint, logout ends the IdP session too (`--oidc.local-logout` turns this off).
+- **What viewers can see.** Pulumi masks values it knows are secret as `[secret]`. Stored diffs
+  can still show values it does not know are secret; the redaction above covers credential-like
+  keys only. Every allowlisted viewer sees every namespace's runs for the retention period, so
+  consider `--logs.diffs=false` when the allowlist is wider than the people who may read
+  deployment details.
+- **HTTP.** A strict Content-Security-Policy (no inline script or style), `nosniff`,
+  `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy`,
+  `Permissions-Policy`, and HSTS when the redirect URL is https. htmx is vendored with pinned
+  checksums; nothing loads from a CDN. All output is escaped by `html/template`.
+- **Database.** Off localhost the connection must use verified TLS (`sslmode=verify-ca` or
+  `verify-full`, or a CA file), checked for every host the URL would dial.
+- **Container.** Distroless, nonroot, read-only root filesystem, all capabilities dropped,
+  `RuntimeDefault` seccomp; secret files are mounted with mode 0440.
+- **Network.** The chart ships a default-deny NetworkPolicy with ingress from the Gateway and
+  the metrics scraper and egress to the Kubernetes API, the database, the IdP and (when
+  enabled) S3. Its default selectors and CIDRs are open; narrow them for your cluster.
+- **Supply chain.** Release images and charts are signed with cosign (keyless, GitHub
+  Actions); CI actions are pinned by commit; Dependabot and Renovate keep dependencies and the
+  base image current.
 
 ## Configuration
 
 | Flag | Default | Notes |
 |---|---|---|
-| `--namespaces` | all | comma-separated list to watch |
+| `--namespaces` | all | comma-separated namespaces to watch |
 | `--http-addr` | `:8080` | UI listener |
-| `--database-url` | required | falls back to the `DATABASE_URL` env var; `sslmode=disable` only for localhost |
-| `--database.ca-file` | none | CA bundle for verifying the database's TLS certificate |
-| `--oidc.issuer`, `--oidc.client-id`, `--oidc.client-secret-file`, `--oidc.redirect-url` | required | |
-| `--oidc.ca-file` | none | extra CA bundle |
-| `--auth.claim`, `--auth.allowed` | `groups`, required | e.g. `roles` / `Pulumi Viewers` |
-| `--session.key-file` | required | HMAC key |
-| `--session.previous-key-file` | none | accepted for verification during key rotation |
-| `--session.max-age` | `8h` | absolute session lifetime |
-| `--retention` | `4320h` | 180 days; runs, logs and changes |
-| `--auth-retention` | `720h` | 30 days; auth events hold email addresses and claim values |
-| `--metrics-addr` | `:9090` | separate listener for `/metrics` |
-| `--log.max-bytes` | `1048576` | |
-| `--s3-history.enabled` | `false` | opt-in |
-| `--s3-history.interval` | `5m` | poll interval, minimum `1m`; used only when enabled. Bucket and prefix come from each Stack's `spec.backend` |
-| `--oidc.local-logout` | `false` | sign out of the app only, even when the IdP supports RP-initiated logout (which needs the app root registered as a post-logout redirect URI) |
-| `--display-timezone` | `UTC` | IANA zone for the stack timeline's day headers; validated at start |
-| `--theme-file` | empty | optional YAML color overrides (`light`, `dark`, `brandBar`), validated at start; the chart renders it from `theme` into a ConfigMap. Keys and defaults: `web/styles/input.css` between `tokens:start` and `tokens:end` |
+| `--metrics-addr` | `:9090` | `/metrics` listener |
+| `--database-url` | required | falls back to `DATABASE_URL`; verified TLS off localhost |
+| `--database.ca-file` | none | CA bundle for the database's certificate |
+| `--oidc.issuer`, `--oidc.client-id`, `--oidc.client-secret-file`, `--oidc.redirect-url` | required | https except for localhost |
+| `--oidc.ca-file` | none | extra CA bundle for the IdP |
+| `--oidc.local-logout` | `false` | sign out of the app only; otherwise the IdP must accept `https://<host>/` as a post-logout redirect URI |
+| `--auth.claim` | `groups` | the claim the allowlist matches |
+| `--auth.allowed` | required | comma-separated allowed claim values |
+| `--session.key-file` | required | at least 32 bytes |
+| `--session.previous-key-file` | none | still accepted for verification during a key rotation |
+| `--session.max-age` | `8h` | 5m to 24h |
+| `--retention` | `4320h` | runs, their changes and S3 history |
+| `--auth-retention` | `720h` | sign-in events |
+| `--logs.diffs` | `true` | store engine log property diffs; `false` keeps counts and names |
+| `--s3-history.enabled` | `false` | read Pulumi history from S3 DIY backends |
+| `--s3-history.interval` | `5m` | at least `1m` |
+| `--display-timezone` | `UTC` | IANA zone for the timeline's day headers |
+| `--theme-file` | none | YAML color overrides; see the README |
 
-## Open question for the spike (phase 0)
+## Error handling
 
-Where does PKO v2 write engine output: the workspace pod log, the operator controller log, or
-neither in a parseable form? If it is only in the controller log, `internal/logs` follows the
-controller pod instead and filters by Update name. If neither log has it, previews show status
-only and the log feature is reduced to showing the raw workspace log. The spike should also
-confirm:
-
-- whether the workspace pod persists across Updates in 2.9.1, which decides the log slicing in
-  `internal/logs`;
-- answered in phase 1: the 2.9.1 Update CRD has no commit field; the Stack's
-  `status.currentUpdate{name, commit}` names the running Update and its commit;
-- answered by the S3 spike (2026-09-25): see "S3 history findings" below.
-
-## S3 history findings (spike, 2026-09-25)
-
-Probed read-only against the example backend
-`s3://state-bucket/pulumi/example?region=eu-north-1` (AWS account 123456789012).
-
-| Topic | Finding |
+| Failure | Behaviour |
 |---|---|
-| Path | `<prefix>/.pulumi/history/<project>/<stack>/<stack>-<ns>.history.json`, here `pulumi/example/.pulumi/history/example-infra/prod/` |
-| Neighbours | Every history file has a `<stack>-<ns>.checkpoint.json` next to it (about 300 KB, full state). Never read them |
-| File name | `<ns>` is the entry's end time in Unix nanoseconds, fixed width, so lexical order is time order |
-| Previews | Write no history (57 entries, none from the hourly previews) |
-| `kind` | `update` (our `up`), `refresh`, and presumably `destroy` |
-| Times | `startTime`, `endTime` in Unix seconds |
-| `result` | `succeeded` or `failed` |
-| `resourceChanges` | Counts only, by operation (for example `{create: 2, delete: 1, same: 108}`); no per-resource list, which only the engine log can give |
-| Commit | `environment["git.head"]` is the exact commit |
-| Sensitive fields | `config` (12 keys, encrypted secure values) and `environment` author and committer emails |
-| Run link | No Update ID; entries match runs by stack, type and time only |
-| Encryption | SSE-KMS with the AWS-managed `aws/s3` key, Bucket Keys enabled. All public-access blocks on, versioning on, bucket policy not public |
-
-The AWS-managed key means the reader needs no `kms:Decrypt` in IAM; confirm on the first real read.
-Operator baseline prefers a customer-managed key for state buckets; moving to one would add
-`kms:Decrypt` with `kms:ViaService = s3.eu-north-1.amazonaws.com` to the policy.
-
-## Phases
-
-0. Spike (throwaway): answer the open question above.
-1. Scaffold, watch, record, store, auth and a status-only UI; the chart, CI and the example
-   deployment. This slice is usable on its own.
-2. Log capture and parsing (done). The raw log is not stored:
-   `run_changes` rows with `source = 'log'` hold counts and the changed resources.
-3. Opt-in S3 history. For example, enabling it is a separate change: the IAM user, the AWS
-   ExternalSecret and `s3History.enabled: true`.
+| Database unreachable | `/readyz` fails; the watch and pollers retry |
+| Kubernetes watch error | controller-runtime re-lists; upserts converge |
+| Workspace pod log gone | the run is marked "log unavailable" and still shows its status |
+| Log tail not flushed | capture retries for up to 10 minutes after the run ended |
+| S3 error | shown on the Stack's page and counted in `pou_s3_errors_total`; never affects readiness |
+| Claim not on the allowlist | a 403 page and a `denied` sign-in event |
 
 ## Testing
 
-- Parser: golden files taken from real preview and up logs (captured in the spike).
-- logs: slicing by `sinceTime` on a workspace pod reused across two Updates, and a restart
-  mid-run that ends with the same stored log.
-- store: against real Postgres via testcontainers.
-- record and watch: envtest with PKO CRDs from the 2.9.1 chart.
-- web and auth: httptest with a stub OIDC provider.
-- s3hist: fake S3 client; plus a test that the binary starts with S3 history off and no AWS
-  environment.
-- Chart: `helm template` in CI with the S3 history value both off and on, asserting that the
-  NetworkPolicy has no S3 egress and no AWS env is rendered when it is off.
+- Store: against PostgreSQL via testcontainers, including every migration up and back down
+  with data in place.
+- Watch and the end-to-end run: envtest with the PKO 2.9.1 CRDs.
+- Logs and S3 history: fakes for the pod log source and S3, and golden engine logs.
+- Web and auth: `httptest` with a stub OIDC provider (`internal/auth/oidctest`).
+- Chart: `helm template` assertions and schema checks.

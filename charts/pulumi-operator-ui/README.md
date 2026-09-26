@@ -9,8 +9,11 @@ helm install pou oci://ghcr.io/jalet/helm-charts/pulumi-operator-ui -f values.ya
 
 The chart renders a single-replica Deployment, a Service (`http` 8080,
 `metrics` 9090), a ServiceAccount with read-only RBAC, a NetworkPolicy and,
-optionally, an HTTPRoute and a ServiceMonitor. It creates no Secrets: point it
-at existing ones.
+optionally, an HTTPRoute, a ServiceMonitor and a theme ConfigMap. It creates no
+Secrets: point it at existing ones. The values are checked against
+`values.schema.json`, so a misspelled key fails `helm install`.
+
+Releases are signed with cosign; the project README shows how to verify them.
 
 Required values are listed in the project
 [README](https://github.com/jalet/pulumi-operator-ui#install); every value is
