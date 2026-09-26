@@ -672,3 +672,59 @@ func TestRenovateTracksKoBaseImage(t *testing.T) {
 	}
 	t.Fatal("no Renovate manager matches the .ko.yaml base image")
 }
+
+// Releases bump the chart's version and appVersion together, so the image, chart and tag
+// always share one version.
+func TestReleaseBumpsChartVersions(t *testing.T) {
+	b, err := os.ReadFile("../../release-please-config.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		Packages map[string]struct {
+			ExtraFiles []struct{ Type, Path, JSONPath string } `json:"extra-files"`
+		} `json:"packages"`
+	}
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, f := range cfg.Packages["."].ExtraFiles {
+		if f.Type == "yaml" && f.Path == "charts/pulumi-operator-ui/Chart.yaml" {
+			got[f.JSONPath] = true
+		}
+	}
+	if !got["$.version"] || !got["$.appVersion"] {
+		t.Fatalf("release-please does not bump both Chart.yaml versions: %v", got)
+	}
+	chart, err := os.ReadFile(_chart + "/Chart.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var meta struct{ Version, AppVersion string }
+	if err := yaml.Unmarshal(chart, &meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta.Version != meta.AppVersion {
+		t.Fatalf("Chart.yaml version %q and appVersion %q differ", meta.Version, meta.AppVersion)
+	}
+}
+
+// The README's cosign identity must name the workflow and ref that sign releases.
+func TestDocsVerifyTheSigningWorkflow(t *testing.T) {
+	wf, err := os.ReadFile("../../.github/workflows/release-please.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(wf), "cosign sign") {
+		t.Fatal("release-please.yml no longer signs releases")
+	}
+	readme, err := os.ReadFile("../../README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const identity = `/\.github/workflows/release-please\.yml@refs/heads/main$`
+	if strings.Count(string(readme), identity) != 2 {
+		t.Errorf("README's cosign verify commands do not name %s", identity)
+	}
+}

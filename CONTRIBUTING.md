@@ -40,9 +40,12 @@ it was verified.
 
 ## Releases
 
-Maintainers tag `vX.Y.Z` on `main`. The release workflow builds the image with ko, pushes the
-image and the chart to ghcr.io, and signs both with cosign. `CHANGELOG.md` is updated in the
-same change that prepares the release.
+Releases are cut with [release-please](https://github.com/googleapis/release-please). It keeps
+a release PR open that collects the conventional commits on `main` into `CHANGELOG.md` and
+bumps the version in `charts/pulumi-operator-ui/Chart.yaml` (a `feat` bumps the minor version
+before 1.0, a `fix` the patch). Merging that PR tags `vX.Y.Z` and creates the GitHub release;
+the same workflow then builds the image with ko, pushes the image and the chart to ghcr.io,
+and signs both with cosign.
 
 ## License
 

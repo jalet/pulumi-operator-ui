@@ -126,14 +126,14 @@ More detail, including the HTTP headers, database TLS rules and container harden
 
 ## Verifying a release
 
-Images and charts are signed with cosign (keyless, from the release workflow):
+Images and charts are signed with cosign (keyless, by the release-please workflow on `main`):
 
 ```sh
 cosign verify ghcr.io/jalet/helm-charts/pulumi-operator-ui:<version> \
-  --certificate-identity-regexp '^https://github.com/jalet/pulumi-operator-ui/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-identity-regexp '^https://github.com/jalet/pulumi-operator-ui/\.github/workflows/release-please\.yml@refs/heads/main$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 cosign verify ghcr.io/jalet/pulumi-operator-ui:<version> \
-  --certificate-identity-regexp '^https://github.com/jalet/pulumi-operator-ui/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-identity-regexp '^https://github.com/jalet/pulumi-operator-ui/\.github/workflows/release-please\.yml@refs/heads/main$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 

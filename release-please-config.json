@@ -1,0 +1,28 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "simple",
+  "include-v-in-tag": true,
+  "bump-minor-pre-major": true,
+  "bootstrap-sha": "2e18f06097e7c43857172a5c324c3f44c5498a29",
+  "changelog-sections": [
+    { "type": "feat", "section": "Features" },
+    { "type": "fix", "section": "Bug fixes" },
+    { "type": "perf", "section": "Performance" },
+    { "type": "docs", "section": "Documentation", "hidden": true },
+    { "type": "refactor", "section": "Refactoring", "hidden": true },
+    { "type": "test", "section": "Tests", "hidden": true },
+    { "type": "build", "section": "Build", "hidden": true },
+    { "type": "ci", "section": "CI", "hidden": true },
+    { "type": "chore", "section": "Chores", "hidden": true }
+  ],
+  "packages": {
+    ".": {
+      "release-as": "0.1.0",
+      "skip-changelog": true,
+      "extra-files": [
+        { "type": "yaml", "path": "charts/pulumi-operator-ui/Chart.yaml", "jsonpath": "$.version" },
+        { "type": "yaml", "path": "charts/pulumi-operator-ui/Chart.yaml", "jsonpath": "$.appVersion" }
+      ]
+    }
+  }
+}
