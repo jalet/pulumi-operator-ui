@@ -1,6 +1,6 @@
 [tools]
-go = "1.26.7"
-golangci-lint = "2.10.1"
+go = "1.27.1"
+golangci-lint = "2.14.0"
 ko = "0.19.1"
 helm = "4.3.0"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1.5.0"
