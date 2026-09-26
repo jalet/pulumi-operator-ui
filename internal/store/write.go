@@ -131,8 +131,10 @@ func (s *Store) UpsertStack(ctx context.Context, st Stack) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }() // no-op after Commit
 	var deletedAt *time.Time
-	err = tx.QueryRow(ctx, `SELECT deleted_at FROM stacks WHERE namespace = $1 AND name = $2
-		FOR UPDATE`, st.Namespace, st.Name).Scan(&deletedAt)
+	var was Stack // the fields that pair drift detectors with the Stacks they check
+	err = tx.QueryRow(ctx, `SELECT deleted_at, preview, watches, backend_url, project, pulumi_stack
+		FROM stacks WHERE namespace = $1 AND name = $2 FOR UPDATE`, st.Namespace, st.Name).Scan(
+		&deletedAt, &was.Preview, &was.Watches, &was.BackendURL, &was.Project, &was.PulumiStack)
 	existed := err == nil
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("upsert stack %s/%s: %w", st.Namespace, st.Name, err)
@@ -166,11 +168,18 @@ func (s *Store) UpsertStack(ctx context.Context, st Stack) error {
 		return nil // only updated_at would have moved: nothing to show
 	}
 	kind := events.KindStack
-	if !existed || deletedAt != nil {
+	// A pairing change can fold a row into another or bring one back: the list reshapes.
+	if !existed || deletedAt != nil || pairingChanged(was, st) {
 		kind = events.KindStackSet
 	}
 	s.pub.Publish(events.Event{Kind: kind, Namespace: st.Namespace, Stack: st.Name})
 	return nil
+}
+
+func pairingChanged(a, b Stack) bool {
+	return a.Preview != b.Preview || a.BackendURL != b.BackendURL || a.Project != b.Project ||
+		a.PulumiStack != b.PulumiStack || (a.Watches == nil) != (b.Watches == nil) ||
+		(a.Watches != nil && *a.Watches != *b.Watches)
 }
 
 // SetStackS3Status records the outcome of polling one Stack's history: errMsg "" on success,
