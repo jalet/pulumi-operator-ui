@@ -15,16 +15,16 @@ url = "https://github.com/tailwindlabs/tailwindcss/releases/download/v4.3.3/tail
 url_api = "https://api.github.com/repos/tailwindlabs/tailwindcss/releases/assets/479118290"
 
 [[tools.go]]
-version = "1.26.7"
+version = "1.27.1"
 backend = "core:go"
 
 [tools.go."platforms.linux-x64"]
-checksum = "sha256:ffb5f8de10c62550dfddab66b36b57030721e0a44a3218e9e1181d7b59f121ca"
-url = "https://dl.google.com/go/go1.26.7.linux-amd64.tar.gz"
+checksum = "sha256:63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445"
+url = "https://dl.google.com/go/go1.27.1.linux-amd64.tar.gz"
 
 [tools.go."platforms.macos-arm64"]
-checksum = "sha256:020a1e8224811be75163e920bc77e0926a1390a6aeea19bdcf23f74b9d749f6d"
-url = "https://dl.google.com/go/go1.26.7.darwin-arm64.tar.gz"
+checksum = "sha256:ee215d57e0ec269c60cc9ceca68e6bda321ba9ee5afe24f4b0988703c2d87d12"
+url = "https://dl.google.com/go/go1.27.1.darwin-arm64.tar.gz"
 
 [[tools."go:golang.org/x/vuln/cmd/govulncheck"]]
 version = "1.5.0"
