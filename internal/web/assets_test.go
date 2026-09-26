@@ -356,7 +356,9 @@ func TestThemeSheetLinkedAfterAppCSS(t *testing.T) {
 
 func TestThemeSheetServed(t *testing.T) {
 	const css = ":root { --pou-page: #000; }\n"
-	resp, body := get(t, newThemedServer(t, css), "/static/theme.css?v=x")
+	srv := newThemedServer(t, css)
+	sum := sha256.Sum256([]byte(css))
+	resp, body := get(t, srv, "/static/theme.css?v="+hex.EncodeToString(sum[:])[:12])
 	if resp.StatusCode != http.StatusOK || body != css ||
 		resp.Header.Get("Content-Type") != "text/css; charset=utf-8" ||
 		resp.Header.Get("Cache-Control") != "public, max-age=31536000, immutable" ||
@@ -366,5 +368,28 @@ func TestThemeSheetServed(t *testing.T) {
 	}
 	if resp, _ := get(t, newServer(t, sampleReader(), nil), "/static/theme.css"); resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status %d without a theme, want 404", resp.StatusCode)
+	}
+}
+
+// During a rolling update the new pod's page can send the theme request to the old pod. Only
+// the current version may be cached as immutable, or a browser keeps the old theme for a year
+// under the new URL.
+func TestThemeSheetCachedOnlyAtItsVersion(t *testing.T) {
+	const css = ":root { --pou-page: #000; }\n"
+	srv := newThemedServer(t, css)
+	_, page := get(t, srv, "/")
+	m := regexp.MustCompile(`href="(/static/theme\.css\?v=[0-9a-f]+)"`).FindStringSubmatch(page)
+	if m == nil {
+		t.Fatal("page lacks the theme link")
+	}
+	if resp, _ := get(t, srv, m[1]); resp.Header.Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Errorf("current version cache = %q, want immutable", resp.Header.Get("Cache-Control"))
+	}
+	for _, path := range []string{"/static/theme.css?v=0123456789ab", "/static/theme.css"} {
+		resp, body := get(t, srv, path)
+		if resp.StatusCode != http.StatusOK || body != css || resp.Header.Get("Cache-Control") != "no-store" {
+			t.Errorf("%s: status %d cache %q, want the sheet with no-store", path, resp.StatusCode,
+				resp.Header.Get("Cache-Control"))
+		}
 	}
 }

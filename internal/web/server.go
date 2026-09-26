@@ -91,10 +91,11 @@ func New(d Deps) http.Handler {
 		d.Now == nil {
 		panic("invariant violated: web.Deps is incomplete")
 	}
-	themeURL := ""
+	themeURL, themeVersion := "", ""
 	if len(d.ThemeCSS) > 0 {
 		sum := sha256.Sum256(d.ThemeCSS)
-		themeURL = "/static/theme.css?v=" + hex.EncodeToString(sum[:])[:12]
+		themeVersion = hex.EncodeToString(sum[:])[:12]
+		themeURL = "/static/theme.css?v=" + themeVersion
 	}
 	s := &server{now: d.Now, store: d.Store, broker: d.Broker, log: d.Log,
 		pages: parsePages(d.Now, themeURL), bases: parsePages(d.Now, themeURL),
@@ -114,9 +115,13 @@ func New(d Deps) http.Handler {
 	mux.Handle("GET /static/", staticHandler())
 	if themeURL != "" {
 		css := d.ThemeCSS
-		mux.HandleFunc("GET /static/theme.css", func(w http.ResponseWriter, _ *http.Request) {
+		mux.HandleFunc("GET /static/theme.css", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/css; charset=utf-8")
-			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			// Only this pod's version is immutable: during a rolling update a page from the
+			// other pod may ask for its version here, which must not be cached as ours.
+			if r.URL.Query().Get("v") == themeVersion {
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			}
 			_, _ = w.Write(css)
 		})
 	}
