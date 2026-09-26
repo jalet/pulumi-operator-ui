@@ -4,8 +4,9 @@ image:
   tag: ""
   pullPolicy: IfNotPresent
 
-# Namespaces to watch. Empty watches all namespaces through a ClusterRole; otherwise the
-# chart creates one Role and RoleBinding per namespace.
+# Namespaces to watch. Empty watches all namespaces through a ClusterRole, which also lets
+# the app read pod logs in every namespace; listing the namespaces your Stacks live in is
+# recommended, and then the chart creates one Role and RoleBinding per namespace.
 namespaces: []
 
 database:

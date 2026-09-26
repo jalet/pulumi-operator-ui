@@ -135,7 +135,7 @@ func TestRBACReadOnly(t *testing.T) {
 		}
 	}
 	want := map[string][]string{"pulumi.com": {"stacks"}, "auto.pulumi.com": {"updates"},
-		"": {"pods", "pods/log"}}
+		"": {"pods/log"}} // log capture reads logs only; pod specs are never needed
 	for g, res := range want {
 		if !slices.Equal(got[g], res) {
 			t.Errorf("group %s resources = %v, want %v", g, got[g], res)
@@ -171,13 +171,13 @@ func TestNamespacedRBAC(t *testing.T) {
 				continue
 			}
 			core++
-			if !slices.Equal(strs(r["resources"]), []string{"pods", "pods/log"}) ||
+			if !slices.Equal(strs(r["resources"]), []string{"pods/log"}) ||
 				!slices.Equal(strs(r["verbs"]), []string{"get"}) {
 				t.Errorf("%s core rule = %v", role.GetNamespace(), r)
 			}
 		}
 		if core != 1 {
-			t.Errorf("%s: %d core rules, want 1 (pods, pods/log)", role.GetNamespace(), core)
+			t.Errorf("%s: %d core rules, want 1 (pods/log)", role.GetNamespace(), core)
 		}
 	}
 	if !slices.Contains(args(t, objs), "--namespaces=a,b") {

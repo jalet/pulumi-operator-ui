@@ -37,8 +37,9 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
 - apiGroups: ["auto.pulumi.com"]
   resources: ["updates"]
   verbs: ["get", "list", "watch"]
+# Engine log capture reads the workspace pod's log; it never needs the pod itself.
 - apiGroups: [""]
-  resources: ["pods", "pods/log"]
+  resources: ["pods/log"]
   verbs: ["get"]
 {{- end -}}
 
