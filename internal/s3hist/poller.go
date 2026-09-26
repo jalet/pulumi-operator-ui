@@ -364,11 +364,14 @@ func isHistoryKey(key string) bool {
 	return strings.HasSuffix(key, ".history.json") || strings.HasSuffix(key, ".history.json.gz")
 }
 
-// permanentGet reports whether a GetObject error will not go away by retrying.
+// permanentGet reports whether a GetObject error concerns this file alone and will not go
+// away by retrying (deleted, or archived to a storage class that needs a restore). Access
+// denied is not one: it usually covers the whole bucket, for example a missing kms:Decrypt,
+// so it must hold the cursor and show on the Stack until the permission is fixed.
 func permanentGet(err error) bool {
 	var ae smithy.APIError
-	return errors.As(err, &ae) && slices.Contains([]string{"NoSuchKey", "AccessDenied",
-		"InvalidObjectState"}, ae.ErrorCode())
+	return errors.As(err, &ae) && slices.Contains([]string{"NoSuchKey", "InvalidObjectState"},
+		ae.ErrorCode())
 }
 
 func (p *Poller) fail(ctx context.Context, s store.S3Stack, reason string, err error) {

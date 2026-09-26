@@ -60,8 +60,9 @@ are skipped. Problems per Stack show on its page ("Pulumi history unavailable: .
 `pou_s3_errors_total`, and never affect readiness. Gzipped history
 (`PULUMI_DIY_BACKEND_GZIP`) is read; the legacy non-project layout
 (`PULUMI_DIY_BACKEND_LEGACY_LAYOUT`, deprecated by Pulumi) is not supported, and such Stacks show
-"Pulumi history unavailable". A history file that can never be read (deleted or denied) is
-passed over and counted in `pou_s3_errors_total{reason="skipped"}`.
+"Pulumi history unavailable". A history file that no longer exists (or is archived) is
+passed over and counted in `pou_s3_errors_total{reason="skipped"}`; access denied stops the
+Stack's history and shows on its page until the permission is fixed.
 
 ## Colors
 

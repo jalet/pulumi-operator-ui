@@ -527,14 +527,14 @@ func TestTickRenumbersCountlessCursor(t *testing.T) {
 	}
 }
 
-// A file that can never be read (gone or denied) is counted and passed, so the Stack's later
-// history still arrives.
+// A file that can never be read (gone) is counted and passed, so the Stack's later history
+// still arrives.
 func TestTickSkipsUnreadableFile(t *testing.T) {
 	st, fs := newFakeStore(_stack), newFakeS3()
 	for i := 1; i <= 3; i++ {
 		fs.put("b", fmt.Sprintf("%sdev-%d.history.json", _prefix, i), historyBody("update", 1790239700+int64(i)))
 	}
-	fs.getErr[_prefix+"dev-2.history.json"] = &smithy.GenericAPIError{Code: "AccessDenied", Message: "denied"}
+	fs.getErr[_prefix+"dev-2.history.json"] = &smithy.GenericAPIError{Code: "NoSuchKey", Message: "gone"}
 	before := testutil.ToFloat64(_s3Errors.WithLabelValues("skipped"))
 	newPoller(st, fs).tick(t.Context())
 	got := map[string]int64{}
@@ -605,5 +605,19 @@ func TestTickGzipBombCapped(t *testing.T) {
 	newPoller(st, fs).tick(t.Context())
 	if len(st.inserted) != 0 || testutil.ToFloat64(_s3Errors.WithLabelValues("size")) != before+1 {
 		t.Fatalf("inserted %d, size not counted", len(st.inserted))
+	}
+}
+
+// Access denied on a file is usually the whole bucket (a missing kms:Decrypt, for example):
+// it must show on the Stack and hold the cursor, not pass over every file.
+func TestTickAccessDeniedHoldsCursor(t *testing.T) {
+	st, fs := newFakeStore(_stack), newFakeS3()
+	fs.put("b", _prefix+"dev-1.history.json", historyBody("update", 1790239800))
+	fs.getErr[_prefix+"dev-1.history.json"] = &smithy.GenericAPIError{Code: "AccessDenied", Message: "denied"}
+	newPoller(st, fs).tick(t.Context())
+	msg, _ := st.status("ns/app")
+	if len(st.inserted) != 0 || st.cursor() != "" || !strings.Contains(msg, "denied") {
+		t.Fatalf("inserted %d cursor %q status %q, want a Stack error and no progress",
+			len(st.inserted), st.cursor(), msg)
 	}
 }
