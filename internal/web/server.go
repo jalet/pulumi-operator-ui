@@ -158,12 +158,34 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
+// staticETags maps every embedded static file to a strong ETag from its content.
+func staticETags(sub fs.FS) map[string]string {
+	tags := map[string]string{}
+	err := fs.WalkDir(sub, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := fs.ReadFile(sub, p)
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(b)
+		tags[p] = `"` + hex.EncodeToString(sum[:16]) + `"`
+		return nil
+	})
+	if err != nil {
+		panic("invariant violated: embedded static: " + err.Error())
+	}
+	return tags
+}
+
 func staticHandler(versions map[string]string) http.Handler {
 	sub, err := fs.Sub(_static, "static")
 	if err != nil {
 		panic("invariant violated: embedded static: " + err.Error())
 	}
 	files := http.StripPrefix("/static/", http.FileServerFS(sub))
+	etags := staticETags(sub)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/") { // no directory listings
 			http.NotFound(w, r)
@@ -176,6 +198,11 @@ func staticHandler(versions map[string]string) http.Handler {
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		} else {
 			w.Header().Set("Cache-Control", "no-cache")
+		}
+		// Embedded files have no modification time, so without an ETag a no-cache file (the
+		// fonts app.css links, an old version) would be downloaded again on every page.
+		if tag, ok := etags[name]; ok {
+			w.Header().Set("ETag", tag)
 		}
 		files.ServeHTTP(w, r)
 	})

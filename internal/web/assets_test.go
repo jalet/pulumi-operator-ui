@@ -457,3 +457,27 @@ func TestTemplatesUseNoPaletteColors(t *testing.T) {
 		}
 	}
 }
+
+// Fonts are linked from app.css without a version, so they must revalidate cheaply: an
+// ETag from their content lets a browser get 304 instead of the file on every page.
+func TestStaticFilesRevalidate(t *testing.T) {
+	srv := newServer(t, sampleReader(), nil)
+	resp, _ := get(t, srv, "/static/fonts/geist-sans-400.woff2")
+	etag := resp.Header.Get("ETag")
+	if resp.StatusCode != http.StatusOK || etag == "" {
+		t.Fatalf("status %d etag %q, want 200 with an ETag", resp.StatusCode, etag)
+	}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/static/fonts/geist-sans-400.woff2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("If-None-Match", etag)
+	again, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = again.Body.Close()
+	if again.StatusCode != http.StatusNotModified {
+		t.Fatalf("revalidation status %d, want 304", again.StatusCode)
+	}
+}
