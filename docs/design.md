@@ -197,6 +197,7 @@ limits.
 | `--log.max-bytes` | `1048576` | |
 | `--s3-history.enabled` | `false` | opt-in |
 | `--s3-history.interval` | `5m` | poll interval, minimum `1m`; used only when enabled. Bucket and prefix come from each Stack's `spec.backend` |
+| `--theme-file` | empty | optional YAML color overrides (`light`, `dark`, `brandBar`), validated at start; the chart renders it from `theme` into a ConfigMap. Keys and defaults: `web/styles/input.css` between `tokens:start` and `tokens:end` |
 
 ## Open question for the spike (phase 0)
 

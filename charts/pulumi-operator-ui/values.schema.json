@@ -1,6 +1,31 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
   "type": "object",
+  "definitions": {
+    "hex": { "type": "string", "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" },
+    "palette": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "page": { "$ref": "#/definitions/hex" },
+        "panel": { "$ref": "#/definitions/hex" },
+        "line": { "$ref": "#/definitions/hex" },
+        "ink": { "$ref": "#/definitions/hex" },
+        "muted": { "$ref": "#/definitions/hex" },
+        "focus": { "$ref": "#/definitions/hex" },
+        "ok": { "$ref": "#/definitions/hex" },
+        "run": { "$ref": "#/definitions/hex" },
+        "attention": { "$ref": "#/definitions/hex" },
+        "bad": { "$ref": "#/definitions/hex" },
+        "neutral": { "$ref": "#/definitions/hex" },
+        "okText": { "$ref": "#/definitions/hex" },
+        "runText": { "$ref": "#/definitions/hex" },
+        "attentionText": { "$ref": "#/definitions/hex" },
+        "badText": { "$ref": "#/definitions/hex" },
+        "neutralText": { "$ref": "#/definitions/hex" }
+      }
+    }
+  },
   "properties": {
     "image": {
       "type": "object",
@@ -57,6 +82,16 @@
       }
     },
     "displayTimezone": { "type": "string", "minLength": 1 },
+    "theme": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "light": { "$ref": "#/definitions/palette" },
+        "dark": { "$ref": "#/definitions/palette" },
+        "brandBar": { "type": "array", "minItems": 5, "maxItems": 5,
+          "items": { "$ref": "#/definitions/hex" } }
+      }
+    },
     "s3History": {
       "type": "object",
       "properties": {

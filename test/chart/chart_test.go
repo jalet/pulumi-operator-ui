@@ -3,13 +3,18 @@ package chart
 
 import (
 	"bytes"
+	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/yaml"
+
+	"github.com/jalet/pulumi-operator-ui/internal/theme"
 )
 
 const _chart = "../../charts/pulumi-operator-ui"
@@ -476,5 +481,79 @@ func TestDisplayTimezone(t *testing.T) {
 	}
 	if a := args(t, render(t, "--set", "displayTimezone=Europe/Stockholm")); !slices.Contains(a, "--display-timezone=Europe/Stockholm") {
 		t.Errorf("args lack the configured timezone: %v", a)
+	}
+}
+
+func themeValues(t *testing.T, doc string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "theme.yaml")
+	if err := os.WriteFile(p, []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestThemeOffByDefault(t *testing.T) {
+	objs := render(t)
+	if cms := find(objs, "ConfigMap"); len(cms) != 0 {
+		t.Errorf("default chart renders %d ConfigMaps", len(cms))
+	}
+	for _, a := range args(t, objs) {
+		if strings.HasPrefix(a, "--theme-file") {
+			t.Errorf("default args carry %s", a)
+		}
+	}
+	if strings.Contains(fmt.Sprint(container(t, objs)["volumeMounts"]), "/etc/pou/theme") {
+		t.Error("default container mounts the theme")
+	}
+}
+
+func TestThemeRendered(t *testing.T) {
+	const doc = `theme:
+  light: {page: "#ffffff"}
+  dark: {bad: "#f28b82"}
+  brandBar: ["#111111", "#222222", "#333333", "#444444", "#555555"]
+`
+	objs := render(t, "-f", themeValues(t, doc))
+	cm := one(t, objs, "ConfigMap")
+	data, _, _ := unstructured.NestedString(cm.Object, "data", "theme.yaml")
+	th, err := theme.Parse([]byte(data))
+	if err != nil || th.Light["page"] != "#ffffff" || th.Dark["bad"] != "#f28b82" || len(th.BrandBar) != 5 {
+		t.Fatalf("ConfigMap theme.yaml does not load: %+v %v\n%s", th, err, data)
+	}
+	if !slices.Contains(args(t, objs), "--theme-file=/etc/pou/theme/theme.yaml") {
+		t.Errorf("args lack --theme-file: %v", args(t, objs))
+	}
+	if !strings.Contains(fmt.Sprint(container(t, objs)["volumeMounts"]), "/etc/pou/theme") {
+		t.Error("container does not mount the theme")
+	}
+	dep := one(t, objs, "Deployment")
+	vols, _, _ := unstructured.NestedSlice(dep.Object, "spec", "template", "spec", "volumes")
+	if !strings.Contains(fmt.Sprint(vols), cm.GetName()) {
+		t.Errorf("no volume uses ConfigMap %s: %v", cm.GetName(), vols)
+	}
+	sum := func(objs []*unstructured.Unstructured) string {
+		s, _, _ := unstructured.NestedString(one(t, objs, "Deployment").Object,
+			"spec", "template", "metadata", "annotations", "checksum/theme")
+		return s
+	}
+	first := sum(objs)
+	changed := sum(render(t, "-f", themeValues(t, strings.Replace(doc, "#ffffff", "#fefefe", 1))))
+	if first == "" || first == changed {
+		t.Errorf("checksum/theme %q then %q: a color change must restart the pod", first, changed)
+	}
+}
+
+func TestThemeSchemaRejects(t *testing.T) {
+	for name, doc := range map[string]string{
+		"unknown key":     "theme:\n  dark: {bda: \"#fff\"}\n",
+		"named color":     "theme:\n  light: {page: red}\n",
+		"unquoted hex":    "theme:\n  light:\n    page: #fff\n",
+		"short brand bar": "theme:\n  brandBar: [\"#111\", \"#222\", \"#333\", \"#444\"]\n",
+		"unknown section": "theme:\n  colors: {page: \"#fff\"}\n",
+	} {
+		if out, err := helmTemplate(t, "-f", themeValues(t, doc)); err == nil {
+			t.Errorf("%s: helm template accepted it:\n%.300s", name, out)
+		}
 	}
 }

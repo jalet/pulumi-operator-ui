@@ -41,3 +41,9 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
   resources: ["pods", "pods/log"]
   verbs: ["get"]
 {{- end -}}
+
+{{/* pou.theme is "true" when any theme value is set. */}}
+{{- define "pou.theme" -}}
+{{- $t := .Values.theme | default dict -}}
+{{- if or $t.light $t.dark $t.brandBar -}}true{{- end -}}
+{{- end }}

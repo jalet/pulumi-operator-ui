@@ -1,0 +1,11 @@
+{{- if include "pou.theme" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pou.fullname" . }}-theme
+  labels:
+    {{- include "pou.labels" . | nindent 4 }}
+data:
+  theme.yaml: |
+    {{- toYaml .Values.theme | nindent 4 }}
+{{- end }}

@@ -20,6 +20,10 @@ spec:
       {{- include "pou.selectorLabels" . | nindent 6 }}
   template:
     metadata:
+      {{- if include "pou.theme" . }}
+      annotations:
+        checksum/theme: {{ toYaml $v.theme | sha256sum }}
+      {{- end }}
       labels:
         {{- include "pou.selectorLabels" . | nindent 8 }}
     spec:
@@ -61,6 +65,9 @@ spec:
             - {{ printf "--retention=%s" $v.retention.runs | quote }}
             - {{ printf "--auth-retention=%s" $v.retention.auth | quote }}
             - {{ printf "--display-timezone=%s" $v.displayTimezone | quote }}
+            {{- if include "pou.theme" . }}
+            - --theme-file=/etc/pou/theme/theme.yaml
+            {{- end }}
             {{- if $v.database.caSecret.name }}
             - --database.ca-file=/etc/pou/db-ca/ca.crt
             {{- end }}
@@ -129,6 +136,11 @@ spec:
               mountPath: /etc/pou/oidc-ca
               readOnly: true
             {{- end }}
+            {{- if include "pou.theme" . }}
+            - name: theme
+              mountPath: /etc/pou/theme
+              readOnly: true
+            {{- end }}
             - name: tmp
               mountPath: /tmp
       volumes:
@@ -169,6 +181,14 @@ spec:
             items:
               - key: {{ $v.oidc.caConfigMap.key }}
                 path: ca.crt
+        {{- end }}
+        {{- if include "pou.theme" . }}
+        - name: theme
+          configMap:
+            name: {{ include "pou.fullname" . }}-theme
+            items:
+              - key: theme.yaml
+                path: theme.yaml
         {{- end }}
         - name: tmp
           emptyDir:

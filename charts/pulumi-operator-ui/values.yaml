@@ -101,6 +101,18 @@ networkPolicy:
 # IANA time zone for the stack timeline's day headers ("Today", "Yesterday").
 displayTimezone: UTC
 
+# Optional color overrides; keys left out keep the built-in colors. Quote every value: an
+# unquoted #fff is a YAML comment. Keys for light and dark: page, panel, line, ink, muted,
+# focus, ok, run, attention, bad, neutral, okText, runText, attentionText, badText,
+# neutralText. Values are #rgb, #rrggbb or #rrggbbaa. Changing the theme restarts the pod.
+theme: {}
+#  light:
+#    page: "#ffffff"
+#    bad: "#d93025"
+#  dark:
+#    page: "#000000"
+#  brandBar: ["#4cc2ff", "#34a853", "#fbbc05", "#ff9902", "#ea4335"]
+
 s3History:
   enabled: false
   interval: 5m
