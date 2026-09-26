@@ -6,13 +6,34 @@
       "Effect": "Allow",
       "Action": "s3:ListBucket",
       "Resource": "arn:aws:s3:::BUCKET",
-      "Condition": { "StringLike": { "s3:prefix": "PREFIX/.pulumi/history/*" } }
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "PREFIX/.pulumi/history/*"
+        }
+      }
     },
     {
       "Sid": "ReadHistoryFilesNotCheckpoints",
       "Effect": "Allow",
       "Action": "s3:GetObject",
-      "Resource": "arn:aws:s3:::BUCKET/PREFIX/.pulumi/history/*/*.history.json"
+      "Resource": [
+        "arn:aws:s3:::BUCKET/PREFIX/.pulumi/history/*/*.history.json",
+        "arn:aws:s3:::BUCKET/PREFIX/.pulumi/history/*/*.history.json.gz"
+      ]
+    },
+    {
+      "Sid": "DenyPlainHTTP",
+      "Effect": "Deny",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::BUCKET",
+        "arn:aws:s3:::BUCKET/*"
+      ],
+      "Condition": {
+        "Bool": {
+          "aws:SecureTransport": "false"
+        }
+      }
     }
   ]
 }

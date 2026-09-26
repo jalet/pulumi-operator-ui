@@ -42,16 +42,47 @@ garbage-collected, or ran before the app was installed). It is off by default an
 
 1. An IAM user with only `docs/iam/s3-history-policy.json` (substitute `BUCKET` and `PREFIX`,
    for example `state-bucket` and `pulumi/example`). It lists the history prefix and reads
-   `*.history.json` files only, never the `.checkpoint.json` state. With a customer-managed KMS
+   `*.history.json` files (and gzipped `*.history.json.gz`) only, never the `.checkpoint.json`
+   state, and denies plain HTTP. For a backend without a path (`s3://bucket`), drop `PREFIX/`
+   from the policy. With a customer-managed KMS
    key on the bucket, add `kms:Decrypt` on that key, conditioned on
    `kms:ViaService = s3.<region>.amazonaws.com`; the AWS-managed `aws/s3` key needs nothing.
 2. Its keys in a Secret (for example via an ExternalSecret from your secret store) with keys
    `access-key-id` and `secret-access-key`.
 3. `s3History.enabled=true` and `s3History.credentialsSecret.name=<secret>`.
 
+Instead of static keys, `s3History.ambientCredentials=true` uses the pod's own AWS identity
+(EKS Pod Identity, or IRSA through `serviceAccount.annotations`). `s3History.region` sets the
+region for backend URLs without `?region=`.
+
 The bucket, prefix and region come from each Stack's `spec.backend`; Stacks on other backends
 are skipped. Problems per Stack show on its page ("Pulumi history unavailable: ...") and in
-`pou_s3_errors_total`, and never affect readiness.
+`pou_s3_errors_total`, and never affect readiness. Gzipped history
+(`PULUMI_DIY_BACKEND_GZIP`) is read; the legacy non-project layout
+(`PULUMI_DIY_BACKEND_LEGACY_LAYOUT`, deprecated by Pulumi) is not supported, and such Stacks show
+"Pulumi history unavailable". A history file that can never be read (deleted or denied) is
+passed over and counted in `pou_s3_errors_total{reason="skipped"}`.
+
+## Colors
+
+The UI follows the OS light or dark setting. Every color is a token, and the chart's `theme`
+value overrides any of them per mode; keys left out keep the built-in palette:
+
+```yaml
+theme:
+  light:
+    page: "#ffffff"
+    bad: "#d93025"
+  dark:
+    page: "#000000"
+  brandBar: ["#4a7c9b", "#5a8fa8", "#6aa0b8", "#c8a84e", "#d8b85e"]
+```
+
+Keys for `light` and `dark`: `page`, `panel`, `line`, `ink`, `muted`, `focus`, `ok`, `run`,
+`attention`, `bad`, `neutral`, `okText`, `runText`, `attentionText`, `badText`, `neutralText`.
+Values are quoted hex colors (`#rgb`, `#rrggbb` or `#rrggbbaa`); an unquoted `#fff` is a YAML
+comment. The chart and the app both reject unknown keys and bad values. Changing the theme
+restarts the pod.
 
 ## Security model
 
