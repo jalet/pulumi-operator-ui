@@ -42,34 +42,26 @@ func Load(path string) (Theme, error) {
 	return Parse(b)
 }
 
-// Parse validates a theme document. Unknown keys and values that are not hex colors are
-// errors that name the key, all reported at once.
+// Parse validates a theme document. Keys are matched exactly (a JSON decoder would accept
+// LIGHT for light), unknown keys and values that are not quoted hex colors are errors that
+// name the key, and all are reported at once.
 func Parse(b []byte) (Theme, error) {
-	var t Theme
-	if err := yaml.UnmarshalStrict(b, &t); err != nil {
+	var raw map[string]any
+	if err := yaml.Unmarshal(b, &raw); err != nil {
 		return Theme{}, fmt.Errorf("theme: %w", err)
 	}
+	var t Theme
 	var errs []error
-	for _, mode := range []struct {
-		name    string
-		palette map[string]string
-	}{{"light", t.Light}, {"dark", t.Dark}} {
-		for _, k := range slices.Sorted(maps.Keys(mode.palette)) {
-			key := "theme." + mode.name + "." + k
-			switch v := mode.palette[k]; {
-			case !slices.Contains(Tokens, k):
-				errs = append(errs, fmt.Errorf("%s: unknown key", key))
-			case !_hex.MatchString(v):
-				errs = append(errs, badColor(key, v))
-			}
-		}
-	}
-	if n := len(t.BrandBar); n != 0 && n != BrandBarLen {
-		errs = append(errs, fmt.Errorf("theme.brandBar: has %d colors, want %d", n, BrandBarLen))
-	}
-	for i, v := range t.BrandBar {
-		if !_hex.MatchString(v) {
-			errs = append(errs, badColor(fmt.Sprintf("theme.brandBar[%d]", i), v))
+	for _, k := range slices.Sorted(maps.Keys(raw)) {
+		switch k {
+		case "light":
+			t.Light = palette("theme.light", raw[k], &errs)
+		case "dark":
+			t.Dark = palette("theme.dark", raw[k], &errs)
+		case "brandBar":
+			t.BrandBar = brandBar(raw[k], &errs)
+		default:
+			errs = append(errs, fmt.Errorf("theme.%s: unknown key", k))
 		}
 	}
 	if err := errors.Join(errs...); err != nil {
@@ -78,8 +70,59 @@ func Parse(b []byte) (Theme, error) {
 	return t, nil
 }
 
-func badColor(key, v string) error {
-	return fmt.Errorf("%s: %q is not a hex color (#rgb, #rrggbb or #rrggbbaa)", key, v)
+// palette validates one mode: known token keys with quoted hex values.
+func palette(name string, v any, errs *[]error) map[string]string {
+	if v == nil {
+		return nil
+	}
+	m, ok := v.(map[string]any)
+	if !ok {
+		*errs = append(*errs, fmt.Errorf("%s: want a map of colors", name))
+		return nil
+	}
+	out := map[string]string{}
+	for _, k := range slices.Sorted(maps.Keys(m)) {
+		key := name + "." + k
+		s, isString := m[k].(string)
+		switch {
+		case !slices.Contains(Tokens, k):
+			*errs = append(*errs, fmt.Errorf("%s: unknown key", key))
+		case !isString || !_hex.MatchString(s):
+			*errs = append(*errs, badColor(key, m[k]))
+		default:
+			out[k] = s
+		}
+	}
+	return out
+}
+
+func brandBar(v any, errs *[]error) []string {
+	if v == nil {
+		return nil
+	}
+	list, ok := v.([]any)
+	if !ok {
+		*errs = append(*errs, errors.New("theme.brandBar: want a list of colors"))
+		return nil
+	}
+	if len(list) != BrandBarLen {
+		*errs = append(*errs, fmt.Errorf("theme.brandBar: has %d colors, want %d", len(list),
+			BrandBarLen))
+	}
+	out := make([]string, 0, len(list))
+	for i, c := range list {
+		s, isString := c.(string)
+		if !isString || !_hex.MatchString(s) {
+			*errs = append(*errs, badColor(fmt.Sprintf("theme.brandBar[%d]", i), c))
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func badColor(key string, v any) error {
+	return fmt.Errorf("%s: %v is not a quoted hex color (#rgb, #rrggbb or #rrggbbaa)", key, v)
 }
 
 // CSS renders the theme. Light values sit in a not-dark media block: this sheet is

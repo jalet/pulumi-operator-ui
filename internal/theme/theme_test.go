@@ -82,6 +82,10 @@ func TestParseErrors(t *testing.T) {
 		{"light:\n  page: #fff\n", "theme.light.page"}, // unquoted: a YAML comment, so null
 		{`brandBar: ["#111", "#222", "#333", "#444"]`, "theme.brandBar: has 4 colors, want 5"},
 		{`brandBar: ["#111", "#222", "#333", "#444", "blue"]`, "theme.brandBar[4]"},
+		{`LIGHT: {page: "#fff"}`, "theme.LIGHT: unknown key"},
+		{`light: {page: 123}`, "theme.light.page"},
+		{`light: [1]`, "theme.light: want a map"},
+		{`brandBar: "#fff"`, "theme.brandBar: want a list"},
 	} {
 		if _, err := Parse([]byte(tc.doc)); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%q: err = %v, want it to mention %q", tc.doc, err, tc.want)
