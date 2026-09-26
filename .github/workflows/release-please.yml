@@ -55,6 +55,27 @@ jobs:
           ref: ${{ needs.release-please.outputs.tag }}
           persist-credentials: false
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      # Reuse what CI on main cached (caches are per branch, and this runs in main's context).
+      # The paths must match CI's exactly: they are part of the cache entry's version.
+      # Restore only: a release build never writes the cache, and pull request caches are in
+      # their own scope, so they cannot reach it.
+      - name: Go cache paths
+        id: go-paths
+        run: |
+          {
+            echo "mod=$(go env GOMODCACHE)"
+            echo "build=$(go env GOCACHE)"
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-paths.outputs.mod }}
+            ${{ steps.go-paths.outputs.build }}
+            ~/.cache/golangci-lint
+            ~/.local/share/kubebuilder-envtest
+          key: go-${{ runner.os }}-${{ hashFiles('mise.lock') }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ hashFiles('mise.lock') }}-
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Version
         run: echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
