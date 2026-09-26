@@ -281,7 +281,7 @@ func (a *Authenticator) exchange(ctx context.Context, code string, f flowState) 
 	if err := idt.Claims(&claims); err != nil {
 		return identity{}, &flowError{detail: "id token claims", status: http.StatusBadRequest}
 	}
-	id := identity{subject: idt.Subject, values: ClaimValues(claims, a.cfg.Claim)}
+	id := identity{subject: idt.Subject, values: a.allowlistValues(claims)}
 	id.email, _ = claims["email"].(string)
 	id.name, _ = claims["name"].(string)
 	if len(id.values) == 0 {
@@ -309,7 +309,18 @@ func (a *Authenticator) userInfoValues(ctx context.Context, tok *oauth2.Token,
 	if err := ui.Claims(&claims); err != nil {
 		return nil, &flowError{detail: "userinfo claims", status: http.StatusBadGateway}
 	}
-	return ClaimValues(claims, a.cfg.Claim), nil
+	return a.allowlistValues(claims), nil
+}
+
+// allowlistValues reads the allowlist claim. An email allowlist only counts addresses the
+// IdP verified: otherwise a self-registered, unverified address would sign in.
+func (a *Authenticator) allowlistValues(claims map[string]any) []string {
+	if a.cfg.Claim == "email" {
+		if verified, _ := claims["email_verified"].(bool); !verified {
+			return nil
+		}
+	}
+	return ClaimValues(claims, a.cfg.Claim)
 }
 
 // logout ends the app session and, when the IdP supports RP-initiated logout, its session
@@ -351,7 +362,10 @@ func (a *Authenticator) session(r *http.Request) (Session, bool) {
 	if err := json.Unmarshal(b, &s); err != nil || s.Subject == "" {
 		return Session{}, false
 	}
-	return s, a.now().Before(s.ExpiresAt)
+	// The issue time also bounds a session by the current --session.max-age, so lowering it
+	// shortens sessions issued before.
+	now := a.now()
+	return s, now.Before(s.ExpiresAt) && now.Sub(s.IssuedAt) <= a.cfg.SessionAgeMax
 }
 
 // _state is what login issues: 32 random bytes, base64url without padding.

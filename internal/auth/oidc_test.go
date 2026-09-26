@@ -62,7 +62,12 @@ type testApp struct {
 	idp    *oidctest.Provider
 	rec    *memRecorder
 	clock  *clock
+	authn  *Authenticator
 }
+
+// cfgMaxAge changes the running Authenticator's session limit, as a restart with a lower
+// --session.max-age would.
+func (a *testApp) cfgMaxAge(d time.Duration) { a.authn.cfg.SessionAgeMax = d }
 
 func newApp(t *testing.T, claims, userinfo map[string]any,
 	opts ...func(*oidctest.Options)) *testApp {
@@ -104,6 +109,7 @@ func newAppWith(t *testing.T, claims, userinfo map[string]any, cfgOpt func(*Conf
 	if err != nil {
 		t.Fatal(err)
 	}
+	app.authn = a
 	a.Routes(mux)
 	mux.Handle("/", a.Require(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, ok := SessionFrom(r.Context())
@@ -525,5 +531,36 @@ func TestLocalLogoutSkipsIdP(t *testing.T) {
 	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/" {
 		t.Fatalf("status %d location %q, want a local 303 to /", resp.StatusCode,
 			resp.Header.Get("Location"))
+	}
+}
+
+// An allowlist of email addresses only means something for addresses the IdP verified.
+func TestEmailClaimNeedsVerifiedEmail(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		claims   map[string]any
+		wantCode int
+	}{
+		{"unverified", map[string]any{"email": "boss@corp.example", "email_verified": false}, http.StatusForbidden},
+		{"no flag", map[string]any{"email": "boss@corp.example"}, http.StatusForbidden},
+		{"verified", map[string]any{"email": "boss@corp.example", "email_verified": true}, http.StatusOK},
+	} {
+		a := newAppWith(t, tc.claims, nil, func(c *Config) {
+			c.Claim, c.Allowed = "email", []string{"boss@corp.example"}
+		})
+		if resp, _ := a.get(t, a.client, "/"); resp.StatusCode != tc.wantCode {
+			t.Errorf("%s: status %d, want %d", tc.name, resp.StatusCode, tc.wantCode)
+		}
+	}
+}
+
+// A session issued before --session.max-age was lowered must not outlive the new limit.
+func TestSessionHonoursCurrentMaxAge(t *testing.T) {
+	a := newApp(t, _viewer, nil)
+	a.login(t)
+	a.clock.advance(2 * time.Hour)
+	a.cfgMaxAge(time.Hour)
+	if resp, _ := a.get(t, a.noRedirect(), "/"); resp.StatusCode == http.StatusOK {
+		t.Fatal("a 2h-old session passed a 1h max age")
 	}
 }
