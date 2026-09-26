@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/rs/zerolog"
 
 	"github.com/jalet/pulumi-operator-ui/internal/auth"
@@ -939,5 +940,51 @@ func TestStackPageShowsItsDriftDetector(t *testing.T) {
 	}
 	if _, body := get(t, newServer(t, sampleReader(), nil), "/stacks/ns/app"); strings.Contains(body, ">Drift</dt>") {
 		t.Error("a stack without a detector shows a Drift entry")
+	}
+}
+
+// rowCells counts the cells of each list row, in order.
+func rowCells(body string) []int {
+	var out []int
+	for _, row := range strings.Split(body, "<tr id=")[1:] {
+		row, _, _ = strings.Cut(row, "</tr>")
+		out = append(out, strings.Count(row, "<td"))
+	}
+	return out
+}
+
+// mixedReader adds a Stack without a detector to driftReader's pair.
+func mixedReader() *fakeReader {
+	r := driftReader(store.RunStateSucceeded)
+	r.stacks = append(r.stacks, store.StackSummary{Stack: store.Stack{Namespace: "p",
+		Name: "staging", Ready: true}})
+	return r
+}
+
+// Once the Drift column shows, every row has its cell, detector or not.
+func TestListMixedRowsKeepTheirColumns(t *testing.T) {
+	_, body := get(t, newServer(t, mixedReader(), nil), "/")
+	if diff := cmp.Diff([]int{6, 6}, rowCells(body)); diff != "" {
+		t.Fatalf("cells per row (-want +got):\n%s", diff)
+	}
+	_, frag := get(t, newServer(t, mixedReader(), nil), "/fragments/stacks/p/staging")
+	if diff := cmp.Diff([]int{6}, rowCells(frag)); diff != "" {
+		t.Fatalf("row fragment cells (-want +got):\n%s", diff)
+	}
+}
+
+// A detector in another namespace is folded the same way whatever the namespace filter, so
+// the page and the row fragments agree.
+func TestListFilterFoldsAcrossNamespaces(t *testing.T) {
+	r := driftReader(store.RunStateSucceeded)
+	target := "p/prod"
+	r.stacks[1].Namespace, r.stacks[1].Watches = "ops", &target
+	_, body := get(t, newServer(t, r, nil), "/?ns=p")
+	if !strings.Contains(body, ">Drift</th>") || !strings.Contains(body, "no drift") {
+		t.Error("the filtered list lost the drift check from another namespace")
+	}
+	_, body = get(t, newServer(t, r, nil), "/?ns=ops")
+	if strings.Contains(body, `href="/stacks/ops/prod-drift"`) {
+		t.Error("a folded detector has a row in its own namespace's view")
 	}
 }

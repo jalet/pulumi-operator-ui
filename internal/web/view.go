@@ -64,7 +64,6 @@ func noStart(st store.RunState) string {
 
 type counters struct{ Total, Ready, Reconciling, Attention int }
 
-// countStacks tallies the list page counters; Needs attention is Stalled plus Not ready.
 // countStacks counts list rows; a Stack whose drift detector found drift needs attention.
 func countStacks(rows []stackRow) counters {
 	c := counters{Total: len(rows)}
@@ -117,22 +116,20 @@ type listPage struct {
 func buildListPage(all []store.StackSummary, ns string) listPage {
 	seen := map[string]bool{}
 	var namespaces []string
-	shown := all
-	if ns != "" {
-		shown = nil
-	}
 	for _, s := range all {
 		if !seen[s.Namespace] {
 			seen[s.Namespace] = true
 			namespaces = append(namespaces, s.Namespace)
 		}
-		if ns != "" && s.Namespace == ns {
-			shown = append(shown, s)
-		}
 	}
 	slices.Sort(namespaces)
-	rows := foldDetectors(shown)
-	hasDrift := slices.ContainsFunc(rows, func(r stackRow) bool { return len(r.Drift) > 0 })
+	// Fold over every stack, then filter, so a detector in another namespace still shows on
+	// the Stack it checks, and the page agrees with the row fragments.
+	rows := foldDetectors(all)
+	hasDrift := len(rows) > 0 && rows[0].ShowDrift
+	if ns != "" {
+		rows = slices.DeleteFunc(rows, func(r stackRow) bool { return r.Namespace != ns })
+	}
 	c := countStacks(rows)
 	chips := make([]chip, 0, len(namespaces)+1)
 	chips = append(chips, chip{Label: "All", Href: "/", On: ns == ""})

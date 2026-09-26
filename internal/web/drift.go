@@ -12,9 +12,11 @@ import (
 // own that never deploys.
 
 // stackRow is one row of the stack list: a Stack and the drift detectors that check it.
+// ShowDrift is set on every row once any row has a detector, so each row has the Drift cell.
 type stackRow struct {
 	store.StackSummary
-	Drift []driftView
+	Drift     []driftView
+	ShowDrift bool
 }
 
 // driftView is one detector's latest check, as the list and the stack page show it.
@@ -63,25 +65,56 @@ func watches(detector, target store.StackSummary) bool {
 }
 
 // foldDetectors turns stacks into list rows: a detector that checks a listed Stack becomes
-// that Stack's drift status instead of a row; one that checks nothing listed stays a row.
+// that Stack's drift status instead of a row; one that checks nothing listed stays a row. It
+// pairs as watches does, through indexes, so a long list stays linear.
 func foldDetectors(stacks []store.StackSummary) []stackRow {
-	folded := map[int]bool{}
-	rows := make([]stackRow, 0, len(stacks))
-	for _, target := range stacks {
-		row := stackRow{StackSummary: target}
-		for i, d := range stacks {
-			if watches(d, target) {
-				row.Drift = append(row.Drift, newDrift(d))
-				folded[i] = true
-			}
+	type pairKey struct{ ns, backend, project, stack string }
+	byName := map[string]int{}
+	byPair := map[pairKey][]int{}
+	rows := make([]stackRow, len(stacks))
+	for i, s := range stacks {
+		rows[i] = stackRow{StackSummary: s}
+		if s.Preview {
+			continue
 		}
-		rows = append(rows, row)
+		byName[s.Namespace+"/"+s.Name] = i
+		if s.BackendURL != "" && s.Project != "" && s.PulumiStack != "" {
+			k := pairKey{s.Namespace, s.BackendURL, s.Project, s.PulumiStack}
+			byPair[k] = append(byPair[k], i)
+		}
+	}
+	folded := make([]bool, len(stacks))
+	for i, d := range stacks {
+		if !d.Preview {
+			continue
+		}
+		var targets []int
+		if w := d.Watches; w != nil {
+			ref := *w
+			if !strings.Contains(ref, "/") {
+				ref = d.Namespace + "/" + ref
+			}
+			if j, ok := byName[ref]; ok && !strings.HasSuffix(ref, "/") {
+				targets = []int{j}
+			}
+		} else {
+			targets = byPair[pairKey{d.Namespace, d.BackendURL, d.Project, d.PulumiStack}]
+		}
+		for _, j := range targets {
+			rows[j].Drift = append(rows[j].Drift, newDrift(d))
+			folded[i] = true
+		}
 	}
 	out := rows[:0]
+	hasDrift := false
 	for i, r := range rows {
 		if !folded[i] {
 			out = append(out, r)
+			hasDrift = hasDrift || len(r.Drift) > 0
 		}
+	}
+	for i := range out {
+		out[i].ShowDrift = hasDrift
 	}
 	return out
 }
