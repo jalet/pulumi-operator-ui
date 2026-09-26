@@ -318,3 +318,30 @@ func TestStackFromObjectStripsRepoCredentials(t *testing.T) {
 		t.Fatalf("RepoURL = %q, want credentials stripped", got.RepoURL)
 	}
 }
+
+// A drift detector can name the Stack it checks, or opt out of pairing, with an annotation.
+func TestStackFromObjectReadsWatches(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		annot map[string]string
+		want  *string
+	}{
+		{"absent", nil, nil},
+		{"opt out", map[string]string{WatchesAnnotation: ""}, strPtr("")},
+		{"same namespace", map[string]string{WatchesAnnotation: "prod"}, strPtr("prod")},
+		{"other namespace", map[string]string{WatchesAnnotation: "infra/prod"}, strPtr("infra/prod")},
+		{"trimmed", map[string]string{WatchesAnnotation: " prod "}, strPtr("prod")},
+	} {
+		obj := load(t, "stack-ready")
+		obj.SetAnnotations(tc.annot)
+		got, err := StackFromObject(obj, _now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (got.Watches == nil) != (tc.want == nil) || (got.Watches != nil && *got.Watches != *tc.want) {
+			t.Errorf("%s: watches %v, want %v", tc.name, got.Watches, tc.want)
+		}
+	}
+}
+
+func strPtr(s string) *string { return &s }

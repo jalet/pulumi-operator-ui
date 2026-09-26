@@ -139,23 +139,23 @@ func (s *Store) UpsertStack(ctx context.Context, st Stack) error {
 	}
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO stacks (namespace, name, ready, reconciling, stalled, last_commit, updated_at,
-		                    backend_url, project, pulumi_stack, preview, repo_url)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		                    backend_url, project, pulumi_stack, preview, repo_url, watches)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		ON CONFLICT (namespace, name) DO UPDATE SET
 		    ready = EXCLUDED.ready, reconciling = EXCLUDED.reconciling,
 		    stalled = EXCLUDED.stalled, last_commit = EXCLUDED.last_commit,
 		    updated_at = EXCLUDED.updated_at, deleted_at = NULL,
 		    backend_url = EXCLUDED.backend_url, project = EXCLUDED.project,
 		    pulumi_stack = EXCLUDED.pulumi_stack, preview = EXCLUDED.preview,
-		    repo_url = EXCLUDED.repo_url
+		    repo_url = EXCLUDED.repo_url, watches = EXCLUDED.watches
 		WHERE (stacks.ready, stacks.reconciling, stacks.stalled, stacks.last_commit,
 		       stacks.deleted_at, stacks.backend_url, stacks.project, stacks.pulumi_stack,
-		       stacks.preview, stacks.repo_url)
+		       stacks.preview, stacks.repo_url, stacks.watches)
 		  IS DISTINCT FROM (EXCLUDED.ready, EXCLUDED.reconciling, EXCLUDED.stalled,
 		       EXCLUDED.last_commit, NULL::timestamptz, EXCLUDED.backend_url, EXCLUDED.project,
-		       EXCLUDED.pulumi_stack, EXCLUDED.preview, EXCLUDED.repo_url)`,
+		       EXCLUDED.pulumi_stack, EXCLUDED.preview, EXCLUDED.repo_url, EXCLUDED.watches)`,
 		st.Namespace, st.Name, st.Ready, st.Reconciling, st.Stalled, st.LastCommit, st.UpdatedAt,
-		st.BackendURL, st.Project, st.PulumiStack, st.Preview, st.RepoURL)
+		st.BackendURL, st.Project, st.PulumiStack, st.Preview, st.RepoURL, st.Watches)
 	if err != nil {
 		return fmt.Errorf("upsert stack %s/%s: %w", st.Namespace, st.Name, err)
 	}

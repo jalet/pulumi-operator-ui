@@ -377,3 +377,32 @@ func TestUpsertStackUnchangedPublishesNothing(t *testing.T) {
 		t.Fatalf("changed stack published %v, want one event", k)
 	}
 }
+
+// A drift detector's pairing override survives a round trip, as absent, opted out or naming
+// its target, and the stack reads carry spec.preview too.
+func TestStackWatchesRoundTrip(t *testing.T) {
+	s, pub := newTestStore(t)
+	empty, target := "", "infra/prod"
+	for _, tc := range []struct {
+		name    string
+		watches *string
+	}{{"none", nil}, {"out", &empty}, {"named", &target}} {
+		st := Stack{Namespace: "ns", Name: tc.name, Preview: true, Watches: tc.watches, UpdatedAt: _t0}
+		must(t, s.UpsertStack(t.Context(), st))
+		got, err := s.GetStack(t.Context(), "ns", tc.name)
+		must(t, err)
+		if !got.Preview || !equalPtr(got.Watches, tc.watches) {
+			t.Errorf("%s: preview %v watches %v, want true %v", tc.name, got.Preview, got.Watches, tc.watches)
+		}
+	}
+	pub.reset()
+	st := Stack{Namespace: "ns", Name: "none", Preview: true, Watches: &target, UpdatedAt: _t0}
+	must(t, s.UpsertStack(t.Context(), st))
+	if k := pub.kinds(); len(k) != 1 {
+		t.Fatalf("a changed watches published %v, want one event", k)
+	}
+}
+
+func equalPtr(a, b *string) bool {
+	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
+}
