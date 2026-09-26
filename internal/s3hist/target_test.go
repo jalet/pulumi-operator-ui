@@ -91,3 +91,17 @@ func TestTargetForQualifiedStackNames(t *testing.T) {
 		})
 	}
 }
+
+// Stack CRs are written by users: path segments that climb out of the history prefix are
+// rejected, not left to the IAM policy.
+func TestTargetRejectsDotSegments(t *testing.T) {
+	for _, tc := range []struct{ stack, project string }{
+		{"..", "proj"}, {".", "proj"}, {"org/..", "proj"}, {"dev", ".."}, {"dev", "a/../b"},
+	} {
+		s := store.S3Stack{Namespace: "ns", Name: "app", BackendURL: "s3://b/pulumi",
+			PulumiStack: tc.stack, Project: tc.project}
+		if _, err := TargetFor(s); !errors.Is(err, ErrStackName) {
+			t.Errorf("stack %q project %q: err %v, want ErrStackName", tc.stack, tc.project, err)
+		}
+	}
+}

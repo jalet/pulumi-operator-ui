@@ -55,9 +55,15 @@ func TargetFor(s store.S3Stack) (Target, error) {
 // stackSegment returns the stack name as it appears in the history path. DIY backends accept
 // "stack", "org/stack" and "org/project/stack"; the project segment must match the project.
 func stackSegment(name, project string) (string, error) {
+	// The project is one path segment; like every stack segment it may not climb out of the
+	// history prefix. The Stack CR is user input, and the IAM policy should not be the only
+	// boundary.
+	if !safeSegment(project) {
+		return "", fmt.Errorf("%w: project %q", ErrStackName, project)
+	}
 	parts := strings.Split(name, "/")
 	for _, p := range parts {
-		if p == "" {
+		if !safeSegment(p) {
 			return "", fmt.Errorf("%w: %q", ErrStackName, name)
 		}
 	}
@@ -72,4 +78,9 @@ func stackSegment(name, project string) (string, error) {
 	default:
 		return "", fmt.Errorf("%w: %q", ErrStackName, name)
 	}
+}
+
+// safeSegment reports whether s is one non-empty path segment that stays where it is.
+func safeSegment(s string) bool {
+	return s != "" && s != "." && s != ".." && !strings.Contains(s, "/")
 }
