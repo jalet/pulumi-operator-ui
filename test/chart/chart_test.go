@@ -3,10 +3,12 @@ package chart
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -622,4 +624,51 @@ func TestLogDiffsOff(t *testing.T) {
 	if a := args(t, render(t, "--set", "logs.diffs=false")); !slices.Contains(a, "--logs.diffs=false") {
 		t.Errorf("args lack --logs.diffs=false: %v", a)
 	}
+}
+
+// Renovate keeps the digest-pinned base image current (Dependabot cannot parse .ko.yaml):
+// its regex must match the pin and capture the image, tag and digest.
+func TestRenovateTracksKoBaseImage(t *testing.T) {
+	b, err := os.ReadFile("../../renovate.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		CustomManagers []struct {
+			ManagerFilePatterns []string `json:"managerFilePatterns"`
+			MatchStrings        []string `json:"matchStrings"`
+			Datasource          string   `json:"datasourceTemplate"`
+		} `json:"customManagers"`
+	}
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	ko, err := os.ReadFile("../../.ko.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range cfg.CustomManagers {
+		if m.Datasource != "docker" || !slices.Contains(m.ManagerFilePatterns, `/^\.ko\.yaml$/`) {
+			continue
+		}
+		for _, ms := range m.MatchStrings {
+			re := regexp.MustCompile(ms)
+			sub := re.FindStringSubmatch(string(ko))
+			if sub == nil {
+				continue
+			}
+			got := map[string]string{}
+			for i, name := range re.SubexpNames() {
+				if name != "" {
+					got[name] = sub[i]
+				}
+			}
+			if got["depName"] == "gcr.io/distroless/static-debian12" && got["currentValue"] == "nonroot" &&
+				strings.HasPrefix(got["currentDigest"], "sha256:") {
+				return
+			}
+			t.Fatalf("captured %v", got)
+		}
+	}
+	t.Fatal("no Renovate manager matches the .ko.yaml base image")
 }
