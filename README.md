@@ -16,6 +16,8 @@ that record each run are garbage-collected. This app keeps that history and show
 
 It never writes to the cluster: no triggering, approving or cancelling runs.
 
+![A stack page: numbered runs by day, ups without changes grouped into ranges, a drift preview, a failed run and a laptop run with its commit subject](docs/images/stack.png)
+
 ## Requirements
 
 - Kubernetes with PKO 2.x (tested with 2.9.1).
