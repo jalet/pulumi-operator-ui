@@ -3,6 +3,22 @@
 All notable changes are recorded here. The project follows
 [Semantic Versioning](https://semver.org).
 
+## [0.2.0](https://github.com/jalet/pulumi-operator-ui/compare/v0.1.0...v0.2.0) (2026-09-26)
+
+
+### Features
+
+* fold drift detectors into the stack they check ([c776990](https://github.com/jalet/pulumi-operator-ui/commit/c7769900351a0e2aa5be9ad119f10f22b37855bd))
+* **store:** record which Stack a drift detector watches ([e6c4a50](https://github.com/jalet/pulumi-operator-ui/commit/e6c4a50c2197bc0adb55e56e87d2d720add0a76b))
+* **web:** fold drift detectors into the stack they check ([31fcb60](https://github.com/jalet/pulumi-operator-ui/commit/31fcb60f793beac41afdcc48ed805a4be9315acc))
+* **web:** show the drift detector on the stack it checks ([1845d4a](https://github.com/jalet/pulumi-operator-ui/commit/1845d4a5d86d091823d9449e846d367d61967175))
+
+
+### Bug fixes
+
+* **store:** reshape the list when a drift pairing changes ([a4182f4](https://github.com/jalet/pulumi-operator-ui/commit/a4182f4fd8fe4483487c3dc046bc74bbdbe6547a))
+* **web:** fold detectors across namespace filters, keep columns aligned ([356953a](https://github.com/jalet/pulumi-operator-ui/commit/356953aa42142f200baece2da6f6c8e4409f7644))
+
 ## 0.1.0 (2026-09-26)
 
 The first public release.
