@@ -3,6 +3,8 @@ package web
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"html/template"
 	"io/fs"
@@ -52,6 +54,7 @@ type Deps struct {
 	Now         func() time.Time
 	S3Interval  time.Duration  // 0 = S3 history off
 	Location    *time.Location // time zone for day headers; nil = UTC
+	ThemeCSS    []byte         // color overrides from --theme-file; empty = built-in colors
 
 	// heartbeat overrides the SSE heartbeat interval; zero means the default. Tests only.
 	heartbeat time.Duration
@@ -88,8 +91,13 @@ func New(d Deps) http.Handler {
 		d.Now == nil {
 		panic("invariant violated: web.Deps is incomplete")
 	}
-	s := &server{now: d.Now, store: d.Store, broker: d.Broker, log: d.Log, pages: parsePages(d.Now),
-		bases:     parsePages(d.Now),
+	themeURL := ""
+	if len(d.ThemeCSS) > 0 {
+		sum := sha256.Sum256(d.ThemeCSS)
+		themeURL = "/static/theme.css?v=" + hex.EncodeToString(sum[:])[:12]
+	}
+	s := &server{now: d.Now, store: d.Store, broker: d.Broker, log: d.Log,
+		pages: parsePages(d.Now, themeURL), bases: parsePages(d.Now, themeURL),
 		heartbeat: d.heartbeat, s3Interval: d.S3Interval, loc: d.Location}
 	if s.loc == nil {
 		s.loc = time.UTC
@@ -104,6 +112,14 @@ func New(d Deps) http.Handler {
 	})
 	mux.HandleFunc("GET /readyz", s.readyz)
 	mux.Handle("GET /static/", staticHandler())
+	if themeURL != "" {
+		css := d.ThemeCSS
+		mux.HandleFunc("GET /static/theme.css", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/css; charset=utf-8")
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			_, _ = w.Write(css)
+		})
+	}
 	mux.Handle("GET /favicon.ico", faviconHandler())
 	d.AuthRoutes(mux)
 

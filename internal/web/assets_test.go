@@ -7,13 +7,18 @@ import (
 	"io/fs"
 	"math"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/rs/zerolog"
+
+	"github.com/jalet/pulumi-operator-ui/internal/events"
 	"github.com/jalet/pulumi-operator-ui/internal/theme"
 )
 
@@ -322,5 +327,43 @@ func TestThemeTokensHaveDefaults(t *testing.T) {
 	}
 	for i := 1; i <= theme.BrandBarLen; i++ {
 		cssVar(t, light, fmt.Sprintf("--pou-brand-%d", i))
+	}
+}
+
+func newThemedServer(t *testing.T, css string) *httptest.Server {
+	t.Helper()
+	h := New(Deps{Store: sampleReader(), Broker: events.NewBroker(), RequireAuth: passthrough,
+		AuthRoutes: func(*http.ServeMux) {}, Log: zerolog.Nop(), Now: func() time.Time { return _now },
+		ThemeCSS: []byte(css)})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestThemeSheetLinkedAfterAppCSS(t *testing.T) {
+	_, plain := get(t, newServer(t, sampleReader(), nil), "/")
+	if strings.Contains(plain, "theme.css") {
+		t.Error("page links a theme sheet without a theme")
+	}
+	_, body := get(t, newThemedServer(t, ":root { --pou-page: #000; }\n"), "/")
+	app := strings.Index(body, `href="/static/app.css?v=`)
+	th := strings.Index(body, `<link rel="stylesheet" href="/static/theme.css?v=`)
+	if app < 0 || th < app {
+		t.Fatalf("theme link at %d, app.css at %d: the theme must load after app.css", th, app)
+	}
+}
+
+func TestThemeSheetServed(t *testing.T) {
+	const css = ":root { --pou-page: #000; }\n"
+	resp, body := get(t, newThemedServer(t, css), "/static/theme.css?v=x")
+	if resp.StatusCode != http.StatusOK || body != css ||
+		resp.Header.Get("Content-Type") != "text/css; charset=utf-8" ||
+		resp.Header.Get("Cache-Control") != "public, max-age=31536000, immutable" ||
+		resp.Header.Get("Content-Security-Policy") != _csp {
+		t.Fatalf("status %d type %q cache %q body %q", resp.StatusCode,
+			resp.Header.Get("Content-Type"), resp.Header.Get("Cache-Control"), body)
+	}
+	if resp, _ := get(t, newServer(t, sampleReader(), nil), "/static/theme.css"); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status %d without a theme, want 404", resp.StatusCode)
 	}
 }

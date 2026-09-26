@@ -111,7 +111,7 @@ func run(ctx context.Context, args []string, getenv func(string) string,
 	}
 	handler := web.New(web.Deps{Store: st, Broker: broker, RequireAuth: authn.Require,
 		AuthRoutes: authn.Routes, Log: logger, Now: time.Now, S3Interval: s3Interval,
-		Location: loc})
+		Location: loc, ThemeCSS: cfg.Theme.CSS()})
 	srv := newHTTPServer(cfg.HTTPAddr, handler)
 	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
 		return serveHTTP(ctx, srv)

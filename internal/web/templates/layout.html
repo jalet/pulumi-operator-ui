@@ -7,6 +7,7 @@
 <title>{{block "title" .}}Pulumi stacks{{end}}</title>
 <link rel="icon" href="{{asset "favicon.ico"}}" sizes="16x16 32x32 48x48">
 <link rel="stylesheet" href="{{asset "app.css"}}">
+{{with themeCSS}}<link rel="stylesheet" href="{{.}}">{{end}}
 <script src="{{asset "htmx.min.js"}}" defer></script>
 <script src="{{asset "sse.js"}}" defer></script>
 <script src="{{asset "app.js"}}" defer></script>

@@ -35,7 +35,7 @@ var _pageFiles = map[string][]string{
 	"error": {"templates/layout.html", "templates/components.html", "templates/error.html"},
 }
 
-func parsePages(now func() time.Time) map[string]*template.Template {
+func parsePages(now func() time.Time, themeURL string) map[string]*template.Template {
 	assets := assetURLs()
 	funcs := template.FuncMap{
 		// asset links a static file with a content version, because static files are served
@@ -65,6 +65,8 @@ func parsePages(now func() time.Time) map[string]*template.Template {
 		"duration":        duration,
 		"stackEvent":      events.StackEventName,
 		"cursor":          formatCursor,
+		// themeCSS is the versioned theme sheet, or "" when no theme is set.
+		"themeCSS": func() string { return themeURL },
 		// user is replaced per request in render; the default renders no name.
 		"user": func() string { return "" },
 	}
