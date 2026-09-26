@@ -52,7 +52,7 @@ output (the logs) and, for S3 DIY backends, in `.pulumi/history/<project>/<stack
 | Authentication | Built-in OIDC (go-oidc, x/oauth2), custom CA bundle supported, HMAC-signed session cookie |
 | Authorization | Allowlist on a configurable claim (groups or roles). Everyone on the allowlist sees everything |
 | Change details | Workspace pod logs, always on. S3 history, **opt-in**, off by default |
-| Packaging | ko-built distroless nonroot image `ghcr.io/jalet/pulumi-operator-ui`; Helm chart `oci://ghcr.io/jalet/charts/pulumi-operator-ui`; both public |
+| Packaging | ko-built distroless nonroot image `ghcr.io/jalet/pulumi-operator-ui`; Helm chart `oci://ghcr.io/jalet/helm-charts/pulumi-operator-ui`; both public |
 
 ## Architecture
 
@@ -197,6 +197,7 @@ limits.
 | `--log.max-bytes` | `1048576` | |
 | `--s3-history.enabled` | `false` | opt-in |
 | `--s3-history.interval` | `5m` | poll interval, minimum `1m`; used only when enabled. Bucket and prefix come from each Stack's `spec.backend` |
+| `--oidc.local-logout` | `false` | sign out of the app only, even when the IdP supports RP-initiated logout (which needs the app root registered as a post-logout redirect URI) |
 | `--display-timezone` | `UTC` | IANA zone for the stack timeline's day headers; validated at start |
 | `--theme-file` | empty | optional YAML color overrides (`light`, `dark`, `brandBar`), validated at start; the chart renders it from `theme` into a ConfigMap. Keys and defaults: `web/styles/input.css` between `tokens:start` and `tokens:end` |
 

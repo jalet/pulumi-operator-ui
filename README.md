@@ -13,7 +13,7 @@ Log capture (phase 2) and opt-in S3 history (phase 3) are described in
 ## Install
 
 ```sh
-helm install pou oci://ghcr.io/jalet/charts/pulumi-operator-ui \
+helm install pou oci://ghcr.io/jalet/helm-charts/pulumi-operator-ui \
   --namespace pulumi-operator-ui --create-namespace -f values.yaml
 ```
 
@@ -33,6 +33,20 @@ Also set `networkPolicy.gateway`, `networkPolicy.database` and
 `networkPolicy.metricsScraper` selectors for your cluster. Off localhost the app
 refuses unverified database TLS, so a plain `sslmode=prefer` URL fails at startup. See
 [the chart's values](charts/pulumi-operator-ui/values.yaml) for everything else.
+
+Sign out also ends the IdP session when the IdP advertises `end_session_endpoint`
+(RP-initiated logout). Register the app root, `https://<host>/`, as a valid post-logout
+redirect URI for the client (in Keycloak: "Valid post logout redirect URIs"), or set
+`oidc.localLogout=true` to sign out of the app only.
+
+Released images and charts are signed with cosign (keyless, GitHub Actions). To verify a
+chart:
+
+```sh
+cosign verify ghcr.io/jalet/helm-charts/pulumi-operator-ui:<version> \
+  --certificate-identity-regexp '^https://github.com/jalet/pulumi-operator-ui/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
 
 ## S3 history (optional)
 

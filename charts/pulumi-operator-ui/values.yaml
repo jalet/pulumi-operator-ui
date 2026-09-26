@@ -23,6 +23,10 @@ oidc:
   issuer: ""
   clientID: ""
   redirectURL: ""
+  # Sign out also ends the IdP session when the IdP supports RP-initiated logout; the IdP
+  # must then accept the app root (https://<host>/) as a post-logout redirect URI. True keeps
+  # sign-out in the app only.
+  localLogout: false
   clientSecret:
     name: ""
     key: client-secret

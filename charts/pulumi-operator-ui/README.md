@@ -4,7 +4,7 @@ Installs [pulumi-operator-ui](https://github.com/jalet/pulumi-operator-ui), a
 read-only UI for Pulumi Kubernetes Operator stacks.
 
 ```sh
-helm install pou oci://ghcr.io/jalet/charts/pulumi-operator-ui -f values.yaml
+helm install pou oci://ghcr.io/jalet/helm-charts/pulumi-operator-ui -f values.yaml
 ```
 
 The chart renders a single-replica Deployment, a Service (`http` 8080,

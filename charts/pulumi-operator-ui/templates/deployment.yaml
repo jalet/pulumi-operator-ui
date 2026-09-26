@@ -55,6 +55,9 @@ spec:
             {{- if $v.oidc.caConfigMap.name }}
             - --oidc.ca-file=/etc/pou/oidc-ca/ca.crt
             {{- end }}
+            {{- if $v.oidc.localLogout }}
+            - --oidc.local-logout=true
+            {{- end }}
             - {{ printf "--auth.claim=%s" $v.auth.claim | quote }}
             - {{ printf "--auth.allowed=%s" (join "," $v.auth.allowed) | quote }}
             - --session.key-file=/etc/pou/secrets/session-key

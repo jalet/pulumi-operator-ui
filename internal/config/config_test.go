@@ -227,3 +227,14 @@ func TestThemeFile(t *testing.T) {
 		t.Errorf("err = %v, want the bad key named", err)
 	}
 }
+
+func TestLocalLogoutFlag(t *testing.T) {
+	c, err := Parse(with(), testEnv)
+	if err != nil || c.OIDC.LocalLogout {
+		t.Fatalf("default local logout = %v err %v, want false", c.OIDC.LocalLogout, err)
+	}
+	c, err = Parse(with("--oidc.local-logout"), testEnv)
+	if err != nil || !c.OIDC.LocalLogout {
+		t.Fatalf("local logout = %v err %v, want true", c.OIDC.LocalLogout, err)
+	}
+}

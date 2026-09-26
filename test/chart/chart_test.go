@@ -577,3 +577,33 @@ func TestS3SchemaChecksCredentialsSecret(t *testing.T) {
 		t.Errorf("a misspelled credentialsSecret key was accepted:\n%.300s", out)
 	}
 }
+
+func TestLocalLogout(t *testing.T) {
+	if a := args(t, render(t)); slices.Contains(a, "--oidc.local-logout=true") {
+		t.Errorf("default args keep logout local: %v", a)
+	}
+	if a := args(t, render(t, "--set", "oidc.localLogout=true")); !slices.Contains(a, "--oidc.local-logout=true") {
+		t.Errorf("args lack --oidc.local-logout=true: %v", a)
+	}
+}
+
+// The install commands in the docs must name the registry path releases are pushed to.
+func TestDocsNameThePublishedChart(t *testing.T) {
+	mise, err := os.ReadFile("../../mise.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const published = "oci://ghcr.io/jalet/helm-charts"
+	if !strings.Contains(string(mise), published) {
+		t.Fatalf("mise.toml no longer pushes to %s", published)
+	}
+	for _, doc := range []string{"../../README.md", "../../charts/pulumi-operator-ui/README.md"} {
+		b, err := os.ReadFile(doc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(b), published+"/pulumi-operator-ui") {
+			t.Errorf("%s does not install from %s", doc, published)
+		}
+	}
+}

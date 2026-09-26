@@ -67,6 +67,13 @@ type testApp struct {
 func newApp(t *testing.T, claims, userinfo map[string]any,
 	opts ...func(*oidctest.Options)) *testApp {
 	t.Helper()
+	return newAppWith(t, claims, userinfo, func(*Config) {}, opts...)
+}
+
+// newAppWith is newApp with a hook to change the Authenticator's Config.
+func newAppWith(t *testing.T, claims, userinfo map[string]any, cfgOpt func(*Config),
+	opts ...func(*oidctest.Options)) *testApp {
+	t.Helper()
 	o := oidctest.Options{ClientID: "pou", ClientSecret: "secret", Claims: claims,
 		UserInfo: userinfo}
 	for _, opt := range opts {
@@ -87,11 +94,13 @@ func newApp(t *testing.T, claims, userinfo map[string]any,
 		t.Fatal(err)
 	}
 	app := &testApp{srv: srv, idp: idp, rec: &memRecorder{}, clock: &clock{t: time.Now()}}
-	a, err := New(t.Context(), Config{
+	cfg := Config{
 		Issuer: idp.URL, ClientID: "pou", ClientSecret: "secret",
 		RedirectURL: srv.URL + "/auth/callback", Claim: "groups",
 		Allowed: []string{"Pulumi Viewers"}, SessionAgeMax: 8 * time.Hour,
-	}, codec, app.rec, zerolog.Nop(), app.clock.Now)
+	}
+	cfgOpt(&cfg)
+	a, err := New(t.Context(), cfg, codec, app.rec, zerolog.Nop(), app.clock.Now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -503,5 +512,18 @@ func TestCallbackBadState(t *testing.T) {
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("state %q: status %d, want 400", state, resp.StatusCode)
 		}
+	}
+}
+
+// An operator whose IdP does not have the app root registered as a post-logout redirect URI
+// can keep logout local.
+func TestLocalLogoutSkipsIdP(t *testing.T) {
+	a := newAppWith(t, _viewer, nil, func(c *Config) { c.LocalLogout = true },
+		func(o *oidctest.Options) { o.EndSession = true })
+	a.login(t)
+	resp, _ := a.post(t, a.noRedirect(), "/auth/logout")
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/" {
+		t.Fatalf("status %d location %q, want a local 303 to /", resp.StatusCode,
+			resp.Header.Get("Location"))
 	}
 }

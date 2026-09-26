@@ -97,6 +97,7 @@ func run(ctx context.Context, args []string, getenv func(string) string,
 		Issuer: cfg.OIDC.Issuer, ClientID: cfg.OIDC.ClientID, ClientSecret: sec.clientSecret,
 		RedirectURL: cfg.OIDC.RedirectURL, CAPool: sec.oidcRoots, Claim: cfg.AuthClaim,
 		Allowed: cfg.AuthAllowed, SessionAgeMax: cfg.SessionAgeMax,
+		LocalLogout: cfg.OIDC.LocalLogout,
 	}, sec.codec, st, logger, time.Now)
 	if err != nil {
 		return err

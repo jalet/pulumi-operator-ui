@@ -47,6 +47,8 @@ type Config struct {
 	Claim         string
 	Allowed       []string
 	SessionAgeMax time.Duration
+	// LocalLogout keeps sign-out in the app even when the IdP supports RP-initiated logout.
+	LocalLogout bool
 }
 
 // EventRecorder persists auth audit events.
@@ -118,7 +120,9 @@ func New(ctx context.Context, cfg Config, codec *Codec, rec EventRecorder, log z
 	if err := provider.Claims(&meta); err != nil {
 		return nil, fmt.Errorf("oidc discovery: %w", err)
 	}
-	a.endSession = meta.EndSession
+	if !cfg.LocalLogout {
+		a.endSession = meta.EndSession
+	}
 	ru, err := url.Parse(cfg.RedirectURL)
 	if err != nil {
 		return nil, fmt.Errorf("oidc redirect url: %w", err)

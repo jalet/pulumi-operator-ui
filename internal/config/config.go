@@ -27,6 +27,7 @@ type OIDC struct {
 	ClientSecretFile string
 	RedirectURL      string
 	CAFile           string
+	LocalLogout      bool // sign out of the app only, not of the IdP
 }
 
 // Config is the validated process configuration.
@@ -75,6 +76,8 @@ func Parse(args []string, getenv func(string) string) (Config, error) {
 		"file with the client secret")
 	fs.StringVar(&c.OIDC.RedirectURL, "oidc.redirect-url", "", "OIDC redirect URL")
 	fs.StringVar(&c.OIDC.CAFile, "oidc.ca-file", "", "extra CA bundle for the IdP")
+	fs.BoolVar(&c.OIDC.LocalLogout, "oidc.local-logout", false,
+		"sign out of the app only, even when the IdP supports RP-initiated logout")
 	fs.StringVar(&c.AuthClaim, "auth.claim", "groups", "claim checked against the allowlist")
 	fs.StringVar(&allowed, "auth.allowed", "", "comma-separated allowed claim values")
 	fs.StringVar(&c.SessionKeyFile, "session.key-file", "", "file with the session HMAC key")
