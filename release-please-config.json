@@ -3,7 +3,7 @@
   "release-type": "simple",
   "include-v-in-tag": true,
   "bump-minor-pre-major": true,
-  "bootstrap-sha": "2e18f06097e7c43857172a5c324c3f44c5498a29",
+  "bootstrap-sha": "46a4070869c69ea6600b78a861cca9bf2d1bc4b2",
   "changelog-sections": [
     { "type": "feat", "section": "Features" },
     { "type": "fix", "section": "Bug fixes" },
