@@ -728,3 +728,42 @@ func TestDocsVerifyTheSigningWorkflow(t *testing.T) {
 		t.Errorf("README's cosign verify commands do not name %s", identity)
 	}
 }
+
+// The release build restores what CI saves, and actions/cache only hits when the paths and key
+// are the same: the two workflows must agree.
+func TestReleaseRestoresCISavedCache(t *testing.T) {
+	cacheOf := func(file, uses string) map[string]any {
+		t.Helper()
+		b, err := os.ReadFile("../../.github/workflows/" + file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var wf struct {
+			Jobs map[string]struct {
+				Steps []struct {
+					Uses string         `json:"uses"`
+					With map[string]any `json:"with"`
+				} `json:"steps"`
+			} `json:"jobs"`
+		}
+		if err := yaml.Unmarshal(b, &wf); err != nil {
+			t.Fatal(err)
+		}
+		for _, job := range wf.Jobs {
+			for _, s := range job.Steps {
+				if strings.HasPrefix(s.Uses, uses+"@") {
+					return s.With
+				}
+			}
+		}
+		t.Fatalf("%s has no %s step", file, uses)
+		return nil
+	}
+	saved := cacheOf("ci.yml", "actions/cache")
+	restored := cacheOf("release-please.yml", "actions/cache/restore")
+	for _, k := range []string{"path", "key", "restore-keys"} {
+		if saved[k] != restored[k] {
+			t.Errorf("%s differs:\nci:      %v\nrelease: %v", k, saved[k], restored[k])
+		}
+	}
+}
