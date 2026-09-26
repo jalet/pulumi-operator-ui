@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/jalet/pulumi-operator-ui/internal/theme"
 )
 
 const (
@@ -47,6 +49,9 @@ type Config struct {
 	S3HistoryInterval time.Duration
 
 	DisplayTimezone string // IANA zone for day headers
+
+	ThemeFile string      // optional YAML color overrides; see internal/theme
+	Theme     theme.Theme // loaded from ThemeFile by Parse; zero when unset
 }
 
 // Parse reads flags from args (without argv[0]); getenv supplies the DATABASE_URL fallback.
@@ -83,6 +88,8 @@ func Parse(args []string, getenv func(string) string) (Config, error) {
 	fs.DurationVar(&c.S3HistoryInterval, "s3-history.interval", 5*time.Minute,
 		"S3 history poll interval")
 	fs.StringVar(&c.DisplayTimezone, "display-timezone", "UTC", "IANA time zone for day headers")
+	fs.StringVar(&c.ThemeFile, "theme-file", "",
+		"YAML file with color overrides; empty = built-in colors")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, fmt.Errorf("parse flags: %w", err)
 	}
@@ -127,6 +134,13 @@ func (c *Config) validate() error {
 	}
 	if _, err := time.LoadLocation(c.DisplayTimezone); err != nil {
 		errs = append(errs, fmt.Errorf("--display-timezone: unknown zone %q", c.DisplayTimezone))
+	}
+	if c.ThemeFile != "" {
+		t, err := theme.Load(c.ThemeFile)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("--theme-file: %w", err))
+		}
+		c.Theme = t
 	}
 	if c.SessionAgeMax < _sessionAgeFloor || c.SessionAgeMax > _sessionAgeCeiling {
 		errs = append(errs, errors.New("--session.max-age must be between 5m and 24h"))

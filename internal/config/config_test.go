@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -197,5 +199,31 @@ func TestDisplayTimezone(t *testing.T) {
 	if _, err := Parse(with("--display-timezone=Mars/Olympus"), testEnv); err == nil ||
 		!strings.Contains(err.Error(), "--display-timezone") {
 		t.Fatalf("err = %v, want a --display-timezone error", err)
+	}
+}
+
+func TestThemeFile(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "good.yaml")
+	bad := filepath.Join(dir, "bad.yaml")
+	if err := os.WriteFile(good, []byte(`light: {page: "#ffffff"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bad, []byte(`light: {page: "white"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Parse(with("--theme-file="+good), testEnv)
+	if err != nil || c.Theme.Light["page"] != "#ffffff" {
+		t.Fatalf("got %+v err %v", c.Theme, err)
+	}
+	for _, p := range []string{bad, filepath.Join(dir, "missing.yaml")} {
+		if _, err := Parse(with("--theme-file="+p), testEnv); err == nil ||
+			!strings.Contains(err.Error(), "--theme-file") {
+			t.Errorf("%s: err = %v, want a --theme-file error", p, err)
+		}
+	}
+	if _, err := Parse(with("--theme-file="+bad), testEnv); err == nil ||
+		!strings.Contains(err.Error(), "theme.light.page") {
+		t.Errorf("err = %v, want the bad key named", err)
 	}
 }
