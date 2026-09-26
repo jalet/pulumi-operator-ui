@@ -26,29 +26,32 @@
 @layer base {
   /* tokens:start */
   /* Every color in the UI. internal/theme's sheet (/static/theme.css) overrides these, and
-     TestInputCSSColorsAreTokens keeps colors out of the rest of this file. */
+     TestInputCSSColorsAreTokens keeps colors out of the rest of this file. The defaults
+     follow the halsingland Keycloak theme (dark), with a derived light variant. */
   :root {
     color-scheme: light dark;
-    --pou-page: #f6f7f9; --pou-panel: #ffffff; --pou-line: #e3e6eb;
-    --pou-ink: #060a17; --pou-muted: #5b6472;
+    --pou-page: #eef2f6; --pou-panel: #ffffff; --pou-line: #d5dde6;
+    --pou-ink: #0d1b2a; --pou-muted: #4f5f6f;
     /* Light mode needs darker accents than the status colors for WCAG AA contrast. */
-    --pou-focus: #b35f00;
-    --pou-ok: #34a853; --pou-run: #4cc2ff; --pou-attention: #fbbc05; --pou-bad: #ea4335;
-    --pou-neutral: #949ba8;
-    --pou-ok-text: #1e7a3a; --pou-run-text: #0b6c9e; --pou-attention-text: #8a6400;
-    --pou-bad-text: #b3261e; --pou-neutral-text: #4a5361;
-    --pou-brand-1: #4cc2ff; --pou-brand-2: #34a853; --pou-brand-3: #fbbc05;
-    --pou-brand-4: #ff9902; --pou-brand-5: #ea4335;
+    --pou-focus: #3a6582;
+    --pou-ok: #3f9d63; --pou-run: #4a7c9b; --pou-attention: #dcb43c; --pou-bad: #dc5050;
+    --pou-neutral: #7a8a9a;
+    --pou-ok-text: #1f7a45; --pou-run-text: #2f5f7f; --pou-attention-text: #7a5f10;
+    --pou-bad-text: #b3312f; --pou-neutral-text: #4f5f6f;
+    --pou-brand-1: #4a7c9b; --pou-brand-2: #5a8fa8; --pou-brand-3: #6aa0b8;
+    --pou-brand-4: #c8a84e; --pou-brand-5: #d8b85e;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --pou-page: #0a0a0f; --pou-panel: #10131c; --pou-line: #1f2431;
-      --pou-ink: #f4f5f7; --pou-muted: #9aa1ad;
-      --pou-focus: #ff9902;
-      --pou-ok: #34a853; --pou-run: #4cc2ff; --pou-attention: #fbbc05; --pou-bad: #ea4335;
-      --pou-neutral: #949ba8;
-      --pou-ok-text: #5fd07f; --pou-run-text: #7fd3ff; --pou-attention-text: #fcd15c;
-      --pou-bad-text: #f28b82; --pou-neutral-text: #b4bac5;
+      /* halsingland: panel and line are its white overlays (4% and 10%) flattened onto the
+         page, since the panel color also rings the rail dots and must be opaque. */
+      --pou-page: #0d1b2a; --pou-panel: #172433; --pou-line: #25323f;
+      --pou-ink: #e8ecf0; --pou-muted: #a0aab4;
+      --pou-focus: #4a7c9b;
+      --pou-ok: #50b478; --pou-run: #6aa0b8; --pou-attention: #dcb43c; --pou-bad: #dc5050;
+      --pou-neutral: #7a8a9a;
+      --pou-ok-text: #80d0a0; --pou-run-text: #8ab8d0; --pou-attention-text: #e8d080;
+      --pou-bad-text: #f0a0a0; --pou-neutral-text: #a0aab4;
     }
   }
   /* tokens:end */

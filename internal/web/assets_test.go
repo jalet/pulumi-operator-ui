@@ -72,10 +72,11 @@ func TestCompiledCSSHasComponentClasses(t *testing.T) {
 			t.Errorf("compiled CSS lacks %s", class)
 		}
 	}
-	for _, hex := range []string{"#4cc2ff", "#34a853", "#fbbc05", "#ff9902", "#ea4335",
-		"#0a0a0f", "#f6f7f9"} {
+	// The defaults follow the halsingland Keycloak theme: its navy page, blue and gold.
+	for _, hex := range []string{"#4a7c9b", "#5a8fa8", "#6aa0b8", "#c8a84e", "#d8b85e",
+		"#0d1b2a", "#eef2f6"} {
 		if !strings.Contains(css, hex) {
-			t.Errorf("compiled CSS lacks brand color %s", hex)
+			t.Errorf("compiled CSS lacks halsingland color %s", hex)
 		}
 	}
 	if !strings.Contains(css, "prefers-color-scheme:dark") &&
