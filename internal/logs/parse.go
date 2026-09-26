@@ -54,6 +54,7 @@ type block struct {
 func Parse(lines []string) Result {
 	res := Result{Counts: map[string]int64{}}
 	var cur *block
+	redacting := -1 // indent of a sensitive map or list whose lines are dropped; -1 = none
 	inSummary := false
 	budget := runBytesMax
 	flush := func() {
@@ -97,6 +98,7 @@ func Parse(lines []string) Result {
 		}
 		if m := _header.FindStringSubmatch(line); m != nil && (_listed[m[4]] || _known[m[4]]) {
 			flush()
+			redacting = -1
 			cur = &block{indent: len(m[1]), res: store.LogResource{Op: m[4], Type: m[3]},
 				skip: m[3] == "pulumi:pulumi:Stack" || (!_listed[m[4]] && m[4] != "refresh")}
 			continue
@@ -130,10 +132,38 @@ func Parse(lines []string) Result {
 			}
 			continue
 		}
-		cur.diff = append(cur.diff, line)
+		if redacting >= 0 && len(line)-len(trimmed) > redacting {
+			continue // inside a sensitive map or list, already shown as [redacted]
+		}
+		redacting = -1
+		red, container := redact(line)
+		if container {
+			redacting = len(line) - len(trimmed)
+		}
+		cur.diff = append(cur.diff, red)
 	}
 	flush()
 	return res
+}
+
+// _sensitive matches property names whose values are credentials even when Pulumi did not
+// mark them secret (a plain config value passed into a Helm chart, an environment variable).
+var _sensitive = regexp.MustCompile(`(?i)(password|passwd|passphrase|secret|token|credential|` +
+	`private_?key|access_?key|api_?key)`)
+
+// _property is one diff line "<indent>[+|-|~] <key>: <value>".
+var _property = regexp.MustCompile(`^(\s*(?:[-+~]\s*)?)("?)([A-Za-z0-9_.\-]+)("?)(\s*:\s*)(\S.*)$`)
+
+// redact replaces the value of a sensitive property with [redacted]. container reports that
+// the value opened a map or list, whose deeper lines the caller then drops.
+func redact(line string) (string, bool) {
+	m := _property.FindStringSubmatch(line)
+	if m == nil || !_sensitive.MatchString(m[3]) {
+		return line, false
+	}
+	value := strings.TrimSpace(m[6])
+	container := strings.HasSuffix(value, "{") || strings.HasSuffix(value, "[")
+	return m[1] + m[2] + m[3] + m[4] + m[5] + "[redacted]", container
 }
 
 // joinDiff removes the common indent and joins lines, cutting at limit bytes.

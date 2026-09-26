@@ -51,6 +51,8 @@ type Options struct {
 	Now      func() time.Time
 	Log      zerolog.Logger
 	Interval time.Duration // 0 = 5s
+	// NoDiffs stores only the counts and which resources changed, never their property diffs.
+	NoDiffs bool
 }
 
 // Capturer captures engine logs for finished runs.
@@ -167,6 +169,11 @@ func (c *Capturer) capture(ctx context.Context, j store.LogJob) {
 		c.o.Log.Warn().Err(err).Int64("run", j.RunID).Msg("logs: read failed; will retry")
 	default:
 		res := Parse(lines)
+		if c.o.NoDiffs {
+			for i := range res.Resources {
+				res.Resources[i].Diff, res.Resources[i].Truncated = "", false
+			}
+		}
 		if !res.Summary && len(res.Resources) == 0 {
 			c.save(ctx, j, store.LogStatusUnavailable, Result{}, "unavailable")
 			return

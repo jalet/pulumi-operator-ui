@@ -204,3 +204,63 @@ func TestParseURNWithoutSeparatorKeepsName(t *testing.T) {
 		t.Fatalf("resources = %+v, want name odd-urn", got.Resources)
 	}
 }
+
+// Values Pulumi did not mark secret but whose keys say they are one are not stored.
+func TestParseRedactsSensitiveKeys(t *testing.T) {
+	got := Parse([]string{
+		"    + kubernetes:helm.sh/v3:Release: (create)",
+		"        [urn=urn:pulumi:prod::p::kubernetes:helm.sh/v3:Release::app]",
+		"        name: \"app\"",
+		"        values: {",
+		"            adminPassword: \"hunter2\"",
+		"            apiToken     : \"tok-123\"",
+		"            db_secret: \"s3cr3t\"",
+		"            privateKey: \"-----BEGIN\"",
+		"            replicas: 2",
+		"        }",
+		"    ~ aws:rds/instance:Instance: (update)",
+		"        [urn=urn:pulumi:prod::p::aws:rds/instance:Instance::db]",
+		"      ~ password: \"old\" => \"new\"",
+		"      ~ tags: {",
+		"          + AccessKeyId: \"AKIA\"",
+		"        }",
+		"Resources:",
+		"    + 1 created",
+	})
+	var all strings.Builder
+	for _, r := range got.Resources {
+		all.WriteString(r.Diff)
+	}
+	diff := all.String()
+	for _, secret := range []string{"hunter2", "tok-123", "s3cr3t", "BEGIN", `"old"`, `"new"`, "AKIA"} {
+		if strings.Contains(diff, secret) {
+			t.Errorf("stored diff keeps %s:\n%s", secret, diff)
+		}
+	}
+	for _, kept := range []string{`name: "app"`, "replicas: 2", "adminPassword: [redacted]",
+		"~ password: [redacted]", "+ AccessKeyId: [redacted]"} {
+		if !strings.Contains(diff, kept) {
+			t.Errorf("stored diff lacks %s:\n%s", kept, diff)
+		}
+	}
+}
+
+// A sensitive map or list is hidden as a whole, and what follows it is kept.
+func TestParseRedactsSensitiveMaps(t *testing.T) {
+	got := Parse([]string{
+		"    + kubernetes:core/v1:Secret: (create)",
+		"        [urn=urn:pulumi:prod::p::kubernetes:core/v1:Secret::s]",
+		"        stringData: {",
+		"            credentials: {",
+		"                user: \"admin\"",
+		"                pass: \"hunter2\"",
+		"            }",
+		"            region: \"eu-north-1\"",
+		"        }",
+	})
+	d := got.Resources[0].Diff
+	if strings.Contains(d, "hunter2") || strings.Contains(d, "admin") ||
+		!strings.Contains(d, "credentials: [redacted]") || !strings.Contains(d, `region: "eu-north-1"`) {
+		t.Fatalf("diff:\n%s", d)
+	}
+}

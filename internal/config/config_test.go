@@ -47,6 +47,7 @@ func defaults() Config {
 
 		S3HistoryInterval: 5 * time.Minute,
 		DisplayTimezone:   "UTC",
+		LogDiffs:          true,
 	}
 }
 
@@ -273,5 +274,14 @@ func TestIssuerMustBeHTTPS(t *testing.T) {
 		if got := err != nil && strings.Contains(err.Error(), "--oidc.issuer"); got != wantErr {
 			t.Errorf("%s: err %v, want error %v", issuer, err, wantErr)
 		}
+	}
+}
+
+func TestLogDiffsFlag(t *testing.T) {
+	if c, err := Parse(with(), testEnv); err != nil || !c.LogDiffs {
+		t.Fatalf("default log diffs = %v err %v, want true", c.LogDiffs, err)
+	}
+	if c, err := Parse(with("--logs.diffs=false"), testEnv); err != nil || c.LogDiffs {
+		t.Fatalf("log diffs = %v err %v, want false", c.LogDiffs, err)
 	}
 }

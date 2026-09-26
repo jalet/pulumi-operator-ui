@@ -103,6 +103,12 @@ networkPolicy:
       - 0.0.0.0/0
     port: 443
 
+# Engine log capture stores each run's property diffs, with values under keys that look like
+# credentials (password, secret, token, key) replaced by [redacted]. Values Pulumi did not mark
+# secret are otherwise visible to every viewer; false stores only counts and resource names.
+logs:
+  diffs: true
+
 # IANA time zone for the stack timeline's day headers ("Today", "Yesterday").
 displayTimezone: UTC
 

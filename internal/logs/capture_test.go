@@ -242,3 +242,24 @@ func TestSweepDropsStaleRetries(t *testing.T) {
 		t.Fatalf("retry = %v, want only the recent entry", c.retry)
 	}
 }
+
+// With diffs off only the counts and which resources changed are stored.
+func TestCaptureWithoutDiffs(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(kline(_t0.Add(-20*time.Second), "pulumi", "    ~ a:b/c:D: (update)"))
+	b.WriteString(kline(_t0.Add(-20*time.Second), "pulumi", "        [urn=urn:pulumi:prod::p::a:b/c:D::x]"))
+	b.WriteString(kline(_t0.Add(-20*time.Second), "pulumi", "      ~ k: 1 => 2"))
+	b.WriteString(kline(_t0.Add(-19*time.Second), "pulumi", "Resources:"))
+	b.WriteString(kline(_t0.Add(-19*time.Second), "pulumi", "    ~ 1 updated"))
+	b.WriteString(kline(_t0, "server", "up completed"))
+	st := &fakeStore{jobs: []store.LogJob{job(1, _t0)}, saves: map[int64]saved{}}
+	src := &fakeSource{body: map[string]string{"prod-workspace-0": b.String()}}
+	c := New(Options{Store: st, Source: src, Now: func() time.Time { return _t0.Add(time.Second) },
+		Log: zerolog.Nop(), NoDiffs: true})
+	c.tick(t.Context())
+	got := st.saves[1]
+	if got.status != store.LogStatusCaptured || len(got.resources) != 1 ||
+		got.resources[0].Name != "x" || got.resources[0].Diff != "" || got.counts["update"] != 1 {
+		t.Fatalf("saved %+v, want the resource and counts without its diff", got)
+	}
+}

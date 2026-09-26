@@ -68,6 +68,9 @@ spec:
             - {{ printf "--retention=%s" $v.retention.runs | quote }}
             - {{ printf "--auth-retention=%s" $v.retention.auth | quote }}
             - {{ printf "--display-timezone=%s" $v.displayTimezone | quote }}
+            {{- if eq (toString $v.logs.diffs) "false" }}
+            - --logs.diffs=false
+            {{- end }}
             {{- if include "pou.theme" . }}
             - --theme-file=/etc/pou/theme/theme.yaml
             {{- end }}

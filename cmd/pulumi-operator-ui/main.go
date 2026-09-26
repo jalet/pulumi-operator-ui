@@ -134,7 +134,7 @@ func run(ctx context.Context, args []string, getenv func(string) string,
 		return fmt.Errorf("kubernetes clientset: %w", err)
 	}
 	capturer := logs.New(logs.Options{Store: st, Source: logs.NewKubeSource(cs), Now: time.Now,
-		Log: logger})
+		Log: logger, NoDiffs: !cfg.LogDiffs})
 	if err := mgr.Add(manager.RunnableFunc(capturer.Run)); err != nil {
 		return fmt.Errorf("add log capture: %w", err)
 	}

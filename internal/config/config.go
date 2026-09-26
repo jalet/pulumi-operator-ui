@@ -52,6 +52,7 @@ type Config struct {
 	S3HistoryInterval time.Duration
 
 	DisplayTimezone string // IANA zone for day headers
+	LogDiffs        bool   // store the property diffs of captured engine logs
 
 	ThemeFile string      // optional YAML color overrides; see internal/theme
 	Theme     theme.Theme // loaded from ThemeFile by Parse; zero when unset
@@ -94,6 +95,8 @@ func Parse(args []string, getenv func(string) string) (Config, error) {
 	fs.DurationVar(&c.S3HistoryInterval, "s3-history.interval", 5*time.Minute,
 		"S3 history poll interval")
 	fs.StringVar(&c.DisplayTimezone, "display-timezone", "UTC", "IANA time zone for day headers")
+	fs.BoolVar(&c.LogDiffs, "logs.diffs", true,
+		"store the property diffs from engine logs; false keeps only counts and resource names")
 	fs.StringVar(&c.ThemeFile, "theme-file", "",
 		"YAML file with color overrides; empty = built-in colors")
 	if err := fs.Parse(args); err != nil {

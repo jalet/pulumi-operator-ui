@@ -614,3 +614,12 @@ func TestAuthRetentionDefault(t *testing.T) {
 		t.Errorf("args lack --auth-retention=720h: %v", a)
 	}
 }
+
+func TestLogDiffsOff(t *testing.T) {
+	if a := args(t, render(t)); slices.Contains(a, "--logs.diffs=false") {
+		t.Errorf("default args turn diffs off: %v", a)
+	}
+	if a := args(t, render(t, "--set", "logs.diffs=false")); !slices.Contains(a, "--logs.diffs=false") {
+		t.Errorf("args lack --logs.diffs=false: %v", a)
+	}
+}
