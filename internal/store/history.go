@@ -355,7 +355,7 @@ func linkRun(ctx context.Context, tx pgx.Tx, e HistoryEntry, runID int64, src Co
 }
 
 func importRun(ctx context.Context, tx pgx.Tx, e HistoryEntry) (int64, error) {
-	name := "s3:" + strings.TrimSuffix(path.Base(e.Key), ".history.json")
+	name := "s3:" + strings.TrimSuffix(strings.TrimSuffix(path.Base(e.Key), ".gz"), ".history.json")
 	src := CommitSourceHistory
 	if e.Commit == "" {
 		src = ""

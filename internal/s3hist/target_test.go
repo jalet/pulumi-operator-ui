@@ -22,6 +22,8 @@ func TestTargetFor(t *testing.T) {
 		{give: "s3://b/pulumi/example?region=eu-north-1", wantBucket: "b", wantRegion: "eu-north-1",
 			wantPrefix: "pulumi/example/.pulumi/history/proj/dev/"},
 		{give: "s3://b/pulumi/example/", wantBucket: "b", wantPrefix: "pulumi/example/.pulumi/history/proj/dev/"},
+		{give: "s3://b?region=eu-north-1", wantBucket: "b", wantRegion: "eu-north-1",
+			wantPrefix: ".pulumi/history/proj/dev/"},
 		{give: "s3://b", wantBucket: "b", wantPrefix: ".pulumi/history/proj/dev/"},
 		{give: "s3://b/p?awssdk=v2&region=eu-west-1", wantBucket: "b", wantRegion: "eu-west-1",
 			wantPrefix: "p/.pulumi/history/proj/dev/"},

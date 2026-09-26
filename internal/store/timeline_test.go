@@ -244,3 +244,16 @@ func TestTimelineNewerAnchorSkipsPreviews(t *testing.T) {
 		t.Fatalf("anchor = %v, want up3 (id %d)", anchor, c[0].ID)
 	}
 }
+
+// Pruning old history never touches the listing cursor, so numbering continues.
+func TestCursorCountSurvivesPrune(t *testing.T) {
+	s, _ := newTestStore(t)
+	must(t, s.SetHistoryCursor(t.Context(), "b", "p/", "p/k5", 5, _t0))
+	if _, err := s.Prune(t.Context(), _t0.Add(400*24*time.Hour), 180*24*time.Hour,
+		365*24*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if key, n, err := s.HistoryCursor(t.Context(), "b", "p/"); err != nil || key != "p/k5" || n != 5 {
+		t.Fatalf("cursor = %q %d %v, want p/k5 5", key, n, err)
+	}
+}

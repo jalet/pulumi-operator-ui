@@ -2,10 +2,12 @@ package s3hist
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -112,6 +114,7 @@ type fakeStore struct {
 	statuses  map[string]string // ns/name -> error message
 	links     []store.LinkResult
 	linkCalls int
+	insertErr error // returned by InsertHistory when set
 }
 
 func newFakeStore(stacks ...store.S3Stack) *fakeStore {
@@ -148,6 +151,9 @@ func (f *fakeStore) cursor() string {
 func (f *fakeStore) InsertHistory(_ context.Context, e store.HistoryEntry, _ time.Time) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.insertErr != nil {
+		return false, f.insertErr
+	}
 	f.inserted = append(f.inserted, e)
 	return true, nil
 }
@@ -476,7 +482,7 @@ func TestTickNumbersKeysInOrder(t *testing.T) {
 	}
 }
 
-// Keys too old to fetch are counted, so the numbers of newer ones stay right.
+// Keys too old to keep are counted, so the numbers of newer ones stay right.
 func TestTickCountsTooOldKeys(t *testing.T) {
 	st, fs := newFakeStore(_stack), newFakeS3()
 	fs.put("b", _prefix+"dev-1.history.json", historyBody("update", 1000)) // decades old
@@ -484,6 +490,9 @@ func TestTickCountsTooOldKeys(t *testing.T) {
 	newPoller(st, fs).tick(t.Context())
 	if len(st.inserted) != 1 || st.inserted[0].Seq != 2 {
 		t.Fatalf("inserted = %+v, want only dev-2 with seq 2", st.inserted)
+	}
+	if st.cursor() != _prefix+"dev-2.history.json" {
+		t.Fatalf("cursor = %s, want dev-2", st.cursor())
 	}
 }
 
@@ -515,5 +524,86 @@ func TestTickRenumbersCountlessCursor(t *testing.T) {
 	}
 	if got[_prefix+"dev-3.history.json"] != 3 || got[_prefix+"dev-1.history.json"] != 1 {
 		t.Fatalf("seq = %v, want every key renumbered from the start", got)
+	}
+}
+
+// A file that can never be read (gone or denied) is counted and passed, so the Stack's later
+// history still arrives.
+func TestTickSkipsUnreadableFile(t *testing.T) {
+	st, fs := newFakeStore(_stack), newFakeS3()
+	for i := 1; i <= 3; i++ {
+		fs.put("b", fmt.Sprintf("%sdev-%d.history.json", _prefix, i), historyBody("update", 1790239700+int64(i)))
+	}
+	fs.getErr[_prefix+"dev-2.history.json"] = &smithy.GenericAPIError{Code: "AccessDenied", Message: "denied"}
+	before := testutil.ToFloat64(_s3Errors.WithLabelValues("skipped"))
+	newPoller(st, fs).tick(t.Context())
+	got := map[string]int64{}
+	for _, e := range st.inserted {
+		got[path.Base(e.Key)] = e.Seq
+	}
+	if len(got) != 2 || got["dev-1.history.json"] != 1 || got["dev-3.history.json"] != 3 {
+		t.Fatalf("inserted %v, want dev-1 #1 and dev-3 #3", got)
+	}
+	if st.cursor() != _prefix+"dev-3.history.json" ||
+		testutil.ToFloat64(_s3Errors.WithLabelValues("skipped")) != before+1 {
+		t.Fatalf("cursor %s, skipped metric not counted", st.cursor())
+	}
+}
+
+func TestTickInsertErrorIsDB(t *testing.T) {
+	st, fs := newFakeStore(_stack), newFakeS3()
+	fs.put("b", _prefix+"dev-1.history.json", historyBody("update", 1790239800))
+	st.insertErr = errors.New("db down")
+	before := testutil.ToFloat64(_s3Errors.WithLabelValues("db"))
+	newPoller(st, fs).tick(t.Context())
+	if testutil.ToFloat64(_s3Errors.WithLabelValues("db")) != before+1 {
+		t.Fatal("insert error not labelled db")
+	}
+}
+
+// A transient fetch error stops the pass; the next tick numbers from where it stopped.
+func TestTickNumbersAfterFetchError(t *testing.T) {
+	st, fs := newFakeStore(_stack), newFakeS3()
+	for i := 1; i <= 3; i++ {
+		fs.put("b", fmt.Sprintf("%sdev-%d.history.json", _prefix, i), historyBody("update", 1790239700+int64(i)))
+	}
+	fs.getErr[_prefix+"dev-2.history.json"] = errors.New("connection reset")
+	p := newPoller(st, fs)
+	p.tick(t.Context())
+	delete(fs.getErr, _prefix+"dev-2.history.json")
+	p.tick(t.Context())
+	got := map[string]int64{}
+	for _, e := range st.inserted {
+		got[path.Base(e.Key)] = e.Seq
+	}
+	if got["dev-1.history.json"] != 1 || got["dev-2.history.json"] != 2 || got["dev-3.history.json"] != 3 {
+		t.Fatalf("seq = %v, want 1 2 3", got)
+	}
+}
+
+func TestTickReadsGzipHistory(t *testing.T) {
+	st, fs := newFakeStore(_stack), newFakeS3()
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	_, _ = zw.Write(historyBody("update", 1790239800))
+	_ = zw.Close()
+	fs.put("b", _prefix+"dev-1.history.json.gz", buf.Bytes())
+	newPoller(st, fs).tick(t.Context())
+	if len(st.inserted) != 1 || st.inserted[0].Seq != 1 {
+		t.Fatalf("inserted %+v, want the gzipped entry as #1", st.inserted)
+	}
+}
+
+func TestTickGzipBombCapped(t *testing.T) {
+	st, fs := newFakeStore(_stack), newFakeS3()
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	_, _ = zw.Write(bytes.Repeat([]byte(" "), historyBytesMax+1))
+	_ = zw.Close()
+	fs.put("b", _prefix+"dev-1.history.json.gz", buf.Bytes())
+	before := testutil.ToFloat64(_s3Errors.WithLabelValues("size"))
+	newPoller(st, fs).tick(t.Context())
+	if len(st.inserted) != 0 || testutil.ToFloat64(_s3Errors.WithLabelValues("size")) != before+1 {
+		t.Fatalf("inserted %d, size not counted", len(st.inserted))
 	}
 }

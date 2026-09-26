@@ -378,3 +378,13 @@ func TestInsertHistoryWithoutCountsStoresEmptyObject(t *testing.T) {
 		t.Fatalf("counts = %s, want {}", counts)
 	}
 }
+
+// A gzipped history file imports under the same name as a plain one.
+func TestImportGzipName(t *testing.T) {
+	s, _ := newTestStore(t)
+	e := seedEntry(t, s, "p/.pulumi/history/proj/dev/dev-5.history.json.gz", _t0)
+	if got := link(t, s, e.EndedAt.Add(16*time.Minute)); got != (LinkResult{Imported: 1}) {
+		t.Fatalf("link = %+v, want one import", got)
+	}
+	getRunByName(t, s, "ns", "s3:dev-5")
+}

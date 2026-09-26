@@ -1,10 +1,13 @@
 package s3hist
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"io"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -216,7 +219,7 @@ func (p *Poller) pollTarget(ctx, s3ctx context.Context, client S3API, t Target,
 	if err != nil {
 		return &pollError{"db", err}
 	}
-	if count == 0 && strings.HasSuffix(cursor, ".history.json") {
+	if count == 0 && isHistoryKey(cursor) {
 		// A history key with no count was written by a version that did not number keys
 		// (a rolling update or a rollback): list from the start so numbers stay right.
 		cursor = ""
@@ -250,12 +253,16 @@ func (p *Poller) pollTarget(ctx, s3ctx context.Context, client S3API, t Target,
 		}
 		for _, o := range out.Contents {
 			key := aws.ToString(o.Key)
-			if strings.HasSuffix(key, ".history.json") {
-				if err := p.ingest(ctx, s3ctx, client, t, key, lastCount+1, now); err != nil {
+			if isHistoryKey(key) {
+				skipped, perr := p.ingest(ctx, s3ctx, client, t, key, lastCount+1, now)
+				if perr != nil {
 					if serr := save(); serr != nil {
 						return serr
 					}
-					return &pollError{"get", err}
+					return perr
+				}
+				if skipped {
+					_s3Errors.WithLabelValues("skipped").Inc()
 				}
 				lastCount++
 			}
@@ -275,18 +282,30 @@ func (p *Poller) pollTarget(ctx, s3ctx context.Context, client S3API, t Target,
 }
 
 // ingest fetches and stores one key. Permanent problems with the file (bad kind or result,
-// bad JSON, too large, too old) are skipped and counted; only fetch errors are returned.
+// bad JSON, too large, too old) are skipped and counted, and so is a file that can never be
+// fetched (gone or denied: skipped is true); only transient fetch and store errors stop the
+// pass.
 func (p *Poller) ingest(ctx, s3ctx context.Context, client S3API, t Target, key string,
-	seq int64, now time.Time) error {
+	seq int64, now time.Time) (bool, *pollError) {
 	out, err := client.GetObject(s3ctx, &s3.GetObjectInput{Bucket: aws.String(t.Bucket),
 		Key: aws.String(key)})
 	if err != nil {
-		return err
+		if permanentGet(err) {
+			p.o.Log.Warn().Err(err).Str("key", key).Msg("s3 history: passed an unreadable file")
+			return true, nil
+		}
+		return false, &pollError{"get", err}
 	}
-	body, err := io.ReadAll(io.LimitReader(out.Body, historyBytesMax+1))
+	body, err := readHistory(key, out.Body)
 	_ = out.Body.Close() // read-only stream; the read error below is what matters
 	if err != nil {
-		return err
+		var gz gzipError
+		if errors.As(err, &gz) {
+			_s3Errors.WithLabelValues("parse").Inc()
+			p.o.Log.Warn().Err(err).Str("key", key).Msg("s3 history: skipped file")
+			return false, nil
+		}
+		return false, &pollError{"get", err}
 	}
 	e, err := ParseEntry(t, key, body)
 	if err != nil {
@@ -301,16 +320,55 @@ func (p *Poller) ingest(ctx, s3ctx context.Context, client S3API, t Target, key 
 		}
 		_s3Errors.WithLabelValues(reason).Inc()
 		p.o.Log.Warn().Err(err).Str("key", key).Msg("s3 history: skipped file")
-		return nil
+		return false, nil
 	}
 	if e.EndedAt.Before(now.Add(-p.o.Retention)) {
-		return nil // counted by the caller, so newer keys keep their numbers
+		return false, nil // counted by the caller, so newer keys keep their numbers
 	}
 	e.Seq = seq
 	if _, err := p.o.Store.InsertHistory(ctx, e, now); err != nil {
-		return err
+		return false, &pollError{"db", err}
 	}
-	return nil
+	return false, nil
+}
+
+// gzipError marks a .gz history file that is not valid gzip: a problem with the file, not
+// with the fetch.
+type gzipError struct{ err error }
+
+func (e gzipError) Error() string { return "gzip: " + e.err.Error() }
+func (e gzipError) Unwrap() error { return e.err }
+
+// readHistory reads a history file, expanding a .gz one. Both the stored and the expanded
+// size are capped one byte past historyBytesMax, so ParseEntry reports an oversized file.
+func readHistory(key string, body io.Reader) ([]byte, error) {
+	raw, err := io.ReadAll(io.LimitReader(body, historyBytesMax+1))
+	if err != nil || !strings.HasSuffix(key, ".gz") || len(raw) > historyBytesMax {
+		return raw, err
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(raw))
+	if err != nil {
+		return nil, gzipError{err}
+	}
+	defer func() { _ = zr.Close() }() // closing a gzip reader only releases state
+	b, err := io.ReadAll(io.LimitReader(zr, historyBytesMax+1))
+	if err != nil {
+		return nil, gzipError{err}
+	}
+	return b, nil
+}
+
+// isHistoryKey reports whether key is an update's history file, plain or gzipped (Pulumi
+// writes .gz when PULUMI_DIY_BACKEND_GZIP is set).
+func isHistoryKey(key string) bool {
+	return strings.HasSuffix(key, ".history.json") || strings.HasSuffix(key, ".history.json.gz")
+}
+
+// permanentGet reports whether a GetObject error will not go away by retrying.
+func permanentGet(err error) bool {
+	var ae smithy.APIError
+	return errors.As(err, &ae) && slices.Contains([]string{"NoSuchKey", "AccessDenied",
+		"InvalidObjectState"}, ae.ErrorCode())
 }
 
 func (p *Poller) fail(ctx context.Context, s store.S3Stack, reason string, err error) {
