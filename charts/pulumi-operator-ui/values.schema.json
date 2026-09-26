@@ -94,9 +94,28 @@
     },
     "s3History": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "enabled": {"type": "boolean"},
-        "interval": {"type": "string"}
+        "interval": {"type": "string"},
+        "region": {"type": "string"},
+        "ambientCredentials": {"type": "boolean"},
+        "credentialsSecret": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {"type": "string"},
+            "accessKeyIdKey": {"type": "string"},
+            "secretAccessKeyKey": {"type": "string"}
+          }
+        }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {"type": "object", "additionalProperties": {"type": "string"}}
       }
     },
     "serviceMonitor": {

@@ -34,10 +34,13 @@ jobs:
       - name: Sign image
         run: |
           while read -r ref; do cosign sign --yes "$ref"; done < refs.txt
-      - name: Package and push chart
+      - name: Package, push and sign chart
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           helm package charts/pulumi-operator-ui --version "$VERSION" --app-version "$VERSION"
           echo "$GITHUB_TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-          helm push "pulumi-operator-ui-${VERSION}.tgz" oci://ghcr.io/jalet/charts
+          helm push "pulumi-operator-ui-${VERSION}.tgz" oci://ghcr.io/jalet/helm-charts 2>&1 | tee push.txt
+          digest="$(awk '/^Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          cosign sign --yes "ghcr.io/jalet/helm-charts/pulumi-operator-ui@${digest}"

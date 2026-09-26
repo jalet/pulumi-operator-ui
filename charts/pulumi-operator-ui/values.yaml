@@ -97,7 +97,6 @@ networkPolicy:
       - 0.0.0.0/0
     port: 443
 
-# Optional: read Pulumi's update history from each Stack's S3 backend (see README).
 # IANA time zone for the stack timeline's day headers ("Today", "Yesterday").
 displayTimezone: UTC
 
@@ -111,16 +110,26 @@ theme: {}
 #    bad: "#d93025"
 #  dark:
 #    page: "#000000"
-#  brandBar: ["#4cc2ff", "#34a853", "#fbbc05", "#ff9902", "#ea4335"]
+#  brandBar: ["#4a7c9b", "#5a8fa8", "#6aa0b8", "#c8a84e", "#d8b85e"]
 
+# Optional: read Pulumi's update history from each Stack's S3 backend (see README).
 s3History:
   enabled: false
   interval: 5m
+  # Default region for backends whose URL has no ?region=; empty uses the SDK default.
+  region: ""
+  # Use the pod's ambient AWS identity (EKS Pod Identity or IRSA via serviceAccount
+  # annotations) instead of static keys; credentialsSecret is then not needed.
+  ambientCredentials: false
   # Secret with a dedicated read-only IAM user's keys (docs/iam/s3-history-policy.json).
   credentialsSecret:
     name: ""
     accessKeyIdKey: access-key-id
     secretAccessKeyKey: secret-access-key
+
+serviceAccount:
+  # For example eks.amazonaws.com/role-arn for IRSA.
+  annotations: {}
 
 serviceMonitor:
   enabled: false

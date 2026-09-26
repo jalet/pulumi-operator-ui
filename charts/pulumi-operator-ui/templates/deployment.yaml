@@ -82,7 +82,12 @@ spec:
                   name: {{ $v.database.urlSecret.name }}
                   key: {{ $v.database.urlSecret.key }}
             {{- if $v.s3History.enabled }}
-            {{- $aws := required "s3History.credentialsSecret.name is required when s3History.enabled" $v.s3History.credentialsSecret.name }}
+            {{- with $v.s3History.region }}
+            - name: AWS_REGION
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if not $v.s3History.ambientCredentials }}
+            {{- $aws := required "s3History.credentialsSecret.name is required when s3History.enabled (or set s3History.ambientCredentials)" $v.s3History.credentialsSecret.name }}
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
@@ -93,6 +98,7 @@ spec:
                 secretKeyRef:
                   name: {{ $aws }}
                   key: {{ $v.s3History.credentialsSecret.secretAccessKeyKey }}
+            {{- end }}
             {{- end }}
           ports:
             - name: http

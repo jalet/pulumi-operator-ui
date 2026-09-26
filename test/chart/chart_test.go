@@ -557,3 +557,23 @@ func TestThemeSchemaRejects(t *testing.T) {
 		}
 	}
 }
+
+func TestS3RegionAndAmbientCredentials(t *testing.T) {
+	objs := render(t, "--set", "s3History.enabled=true", "--set", "s3History.region=eu-north-1",
+		"--set", "s3History.ambientCredentials=true",
+		"--set", "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn=arn:aws:iam::123456789012:role/pou")
+	env := fmt.Sprint(container(t, objs)["env"])
+	if !strings.Contains(env, "AWS_REGION") || strings.Contains(env, "AWS_ACCESS_KEY_ID") {
+		t.Errorf("env %s, want AWS_REGION and no static keys", env)
+	}
+	sa := one(t, objs, "ServiceAccount")
+	if sa.GetAnnotations()["eks.amazonaws.com/role-arn"] == "" {
+		t.Error("service account annotations not rendered")
+	}
+}
+
+func TestS3SchemaChecksCredentialsSecret(t *testing.T) {
+	if out, err := helmTemplate(t, "--set", "s3History.credentialsSecret.nam=x"); err == nil {
+		t.Errorf("a misspelled credentialsSecret key was accepted:\n%.300s", out)
+	}
+}
