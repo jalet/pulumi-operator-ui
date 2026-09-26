@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/jalet/pulumi-operator-ui/internal/theme"
 )
 
@@ -177,7 +179,17 @@ func validateDatabaseURL(raw string, haveCA bool) error {
 	if err != nil || u.Host == "" {
 		return errors.New("--database-url: invalid")
 	}
-	if isLocalhost(u.Hostname()) {
+	// Judge the hosts pgx will actually dial: ?host= overrides the URL's host, and a URL can
+	// list several.
+	pc, err := pgconn.ParseConfig(raw)
+	if err != nil {
+		return errors.New("--database-url: invalid")
+	}
+	local := isLocalhost(pc.Host)
+	for _, fb := range pc.Fallbacks {
+		local = local && isLocalhost(fb.Host)
+	}
+	if local {
 		return nil
 	}
 	switch mode := u.Query().Get("sslmode"); {

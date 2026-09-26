@@ -238,3 +238,25 @@ func TestLocalLogoutFlag(t *testing.T) {
 		t.Fatalf("local logout = %v err %v, want true", c.OIDC.LocalLogout, err)
 	}
 }
+
+// pgx lets ?host= override the URL's host, and a URL can list several hosts: every host it
+// would connect to must pass the TLS rule.
+func TestDatabaseHostOverrideNeedsTLS(t *testing.T) {
+	for _, tc := range []struct {
+		url, wantErr string
+	}{
+		{"postgres://u@localhost/pou?host=db.example.com&sslmode=disable", "sslmode=disable is only allowed for localhost"},
+		{"postgres://u@localhost/pou?host=db.example.com", "TLS must be verified"},
+		{"postgres://u@localhost:5432,db.example.com:5432/pou?sslmode=disable", "sslmode=disable is only allowed for localhost"},
+		{"postgres://u@localhost/pou?host=127.0.0.1&sslmode=disable", ""},
+		{"postgres://u@localhost/pou?host=db.example.com&sslmode=verify-full", ""},
+	} {
+		_, err := Parse(with("--database-url="+tc.url), testEnv)
+		switch {
+		case tc.wantErr == "" && err != nil:
+			t.Errorf("%s: err %v, want accepted", tc.url, err)
+		case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
+			t.Errorf("%s: err %v, want %q", tc.url, err, tc.wantErr)
+		}
+	}
+}
