@@ -67,6 +67,7 @@ type server struct {
 	heartbeat  time.Duration
 	s3Interval time.Duration
 	loc        *time.Location
+	streams    streamCounts // open /events streams per subject
 	log        zerolog.Logger
 	pages      map[string]*template.Template // executed directly, for fragments
 	bases      map[string]*template.Template // never executed; cloned per full page

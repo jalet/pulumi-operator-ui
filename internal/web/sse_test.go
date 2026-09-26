@@ -226,3 +226,61 @@ func TestSSEAlsoSendsStackAny(t *testing.T) {
 		}
 	}
 }
+
+// One viewer (or a runaway script) cannot take every stream: the ninth for one subject is
+// refused, and closing one frees its slot.
+func TestSSEStreamsPerSubject(t *testing.T) {
+	srv, _ := newSSEServer(t, time.Hour, time.Hour)
+	var open []*stream
+	for range sseStreamsPerSubject {
+		s := openStream(t, srv)
+		if line, ok := s.next(t, 2*time.Second); !ok || line != "event: resync" {
+			t.Fatalf("stream %d: %q %v", len(open), line, ok)
+		}
+		open = append(open, s)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := srv.Client().Do(req) // headers only: an accepted stream never ends
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429 past the per-subject cap", resp.StatusCode)
+	}
+	open[0].cancel()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		s := openStream(t, srv)
+		if line, ok := s.next(t, 2*time.Second); ok && line == "event: resync" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("a closed stream did not free its slot")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+type deadlineRecorder struct {
+	*httptest.ResponseRecorder
+	deadline time.Time
+}
+
+func (d *deadlineRecorder) SetWriteDeadline(t time.Time) error { d.deadline = t; return nil }
+
+// A client that stops reading must not hold its goroutine forever: every send has a deadline.
+func TestSSESendSetsWriteDeadline(t *testing.T) {
+	w := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+	if !sseSend(w, http.NewResponseController(w), ": ping\n\n") {
+		t.Fatal("send failed")
+	}
+	if left := time.Until(w.deadline); left <= 0 || left > sseWriteTimeout {
+		t.Fatalf("write deadline in %v, want within %v", left, sseWriteTimeout)
+	}
+}

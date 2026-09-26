@@ -26,6 +26,41 @@ var (
 	_registerOnce sync.Once
 )
 
+const (
+	// sseStreamsPerSubject bounds one viewer's streams (a tab each), so one viewer or a
+	// runaway script cannot take the broker's whole budget.
+	sseStreamsPerSubject = 8
+	// sseWriteTimeout bounds each write, so a client that stops reading frees its goroutine.
+	sseWriteTimeout = 10 * time.Second
+)
+
+// streamCounts tracks each subject's open event streams.
+type streamCounts struct {
+	mu sync.Mutex
+	n  map[string]int
+}
+
+func (c *streamCounts) acquire(subject string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.n == nil {
+		c.n = map[string]int{}
+	}
+	if c.n[subject] >= sseStreamsPerSubject {
+		return false
+	}
+	c.n[subject]++
+	return true
+}
+
+func (c *streamCounts) release(subject string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.n[subject]--; c.n[subject] <= 0 {
+		delete(c.n, subject)
+	}
+}
+
 func registerMetrics() {
 	_registerOnce.Do(func() { ctrlmetrics.Registry.MustRegister(_sseClients) })
 }
@@ -39,6 +74,11 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		panic("invariant violated: /events reached without a session")
 	}
+	if !s.streams.acquire(sess.Subject) {
+		http.Error(w, "too many streams for this user", http.StatusTooManyRequests)
+		return
+	}
+	defer s.streams.release(sess.Subject)
 	ctx, cancel := context.WithDeadline(r.Context(), sess.ExpiresAt)
 	defer cancel()
 	ch, err := s.broker.Subscribe(ctx)
@@ -93,6 +133,8 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 }
 
 func sseSend(w io.Writer, rc *http.ResponseController, msg string) bool {
+	// Best effort: a writer without deadlines (a test recorder) still gets the message.
+	_ = rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout))
 	if _, err := io.WriteString(w, msg); err != nil {
 		return false
 	}
