@@ -53,7 +53,8 @@ session:
 
 retention:
   runs: 4320h
-  auth: 8760h
+  # Sign-in events hold email addresses and claim values (personal data): keep them short.
+  auth: 720h
 
 resources:
   requests:

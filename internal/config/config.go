@@ -87,7 +87,8 @@ func Parse(args []string, getenv func(string) string) (Config, error) {
 		"file with the previous session key, accepted for verification")
 	fs.DurationVar(&c.SessionAgeMax, "session.max-age", 8*time.Hour, "absolute session lifetime")
 	fs.DurationVar(&c.RetentionRuns, "retention", 4320*time.Hour, "retention for runs")
-	fs.DurationVar(&c.RetentionAuth, "auth-retention", 8760*time.Hour, "retention for auth events")
+	fs.DurationVar(&c.RetentionAuth, "auth-retention", 720*time.Hour,
+		"retention for sign-in events, which hold email addresses and claim values")
 	fs.BoolVar(&c.S3HistoryEnabled, "s3-history.enabled", false,
 		"read Pulumi update history from each Stack's S3 backend")
 	fs.DurationVar(&c.S3HistoryInterval, "s3-history.interval", 5*time.Minute,

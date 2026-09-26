@@ -75,7 +75,7 @@ output (the logs) and, for S3 DIY backends, in `.pulumi/history/<project>/<stack
 | `internal/record` | Maps Update and Stack events to idempotent upserts on `runs`: Update UID, stack, type, commit, start, end, state, message. The Update CRD carries no commit, so the commit comes from the owning Stack: `status.currentUpdate.commit` or `status.lastUpdate.lastAttemptedCommit` when that entry names this Update (`commit_source=update`, exact), otherwise `lastAttemptedCommit` when the Update is first seen (`commit_source=stack`, shown as approximate). A restart re-lists and converges, and every Stack reconcile inserts its `status.lastUpdate` as a run if that run is not recorded yet | watch, store |
 | `internal/logs` | The workspace pod is expected to be long-lived and reused across Updates (to be confirmed in the spike), so the log is sliced per run: read with `sinceTime` set to the Update's `startTime`, stop at `endTime`. If the app restarts mid-run, it re-reads from `startTime` and replaces the stored text, so capture is idempotent. Stores ANSI-stripped text, capped at 1 MiB, then parses the resource lines and the `Resources:` summary with a pure parser | watch, store |
 | `internal/s3hist` | **Optional.** Only built when `--s3-history.enabled=true`; nothing else imports it. Every 5 minutes, lists history files newer than the last one seen (`StartAfter`) and stores `kind`, timestamps, `result`, the `resourceChanges` counts and `git.head`, matching each entry to an `up`, `refresh` or `destroy` run of the same stack by time window (see S3 history findings). DIY history does not record previews, so preview runs never have S3 counts | S3, store |
-| `internal/store` | Schema, queries and retention: `--retention` (default 180 days) for runs, logs and changes; `--auth-retention` (default 1 year) for auth events | PostgreSQL |
+| `internal/store` | Schema, queries and retention: `--retention` (default 180 days) for runs, logs and changes; `--auth-retention` (default 30 days) for auth events, which hold email addresses and claim values | PostgreSQL |
 | `internal/auth` | OIDC login and callback (authorization code with PKCE, `state` and `nonce`), sessions with a fixed lifetime, claim allowlist middleware, auth event recording | IdP, store |
 | `internal/web` | Pages, `/events` SSE stream, `/healthz`, `/readyz`; `/metrics` on a separate listener (`--metrics-addr`) | store, auth |
 
@@ -98,9 +98,9 @@ list. Its runs stay and follow normal retention. The row is purged once no runs 
 ### Retention
 
 `--retention` (default 180 days) prunes `runs` and `run_changes`. `--auth-retention`
-(default 1 year) prunes `auth_events`, following the internal logging baseline (COMP-008).
-Auth events contain personal data (subject, email), so this retention period must be justified
-under GDPR Article 5(1)(e), storage limitation. VERIFY WITH LEGAL COUNSEL.
+(default 30 days) prunes `auth_events`. Sign-in events hold personal data (subject, email and
+claim values), so the default is short; choose the period your own data protection
+obligations call for.
 
 ### Known limits
 
@@ -192,7 +192,7 @@ limits.
 | `--session.previous-key-file` | none | accepted for verification during key rotation |
 | `--session.max-age` | `8h` | absolute session lifetime |
 | `--retention` | `4320h` | 180 days; runs, logs and changes |
-| `--auth-retention` | `8760h` | 1 year; auth events |
+| `--auth-retention` | `720h` | 30 days; auth events hold email addresses and claim values |
 | `--metrics-addr` | `:9090` | separate listener for `/metrics` |
 | `--log.max-bytes` | `1048576` | |
 | `--s3-history.enabled` | `false` | opt-in |

@@ -607,3 +607,10 @@ func TestDocsNameThePublishedChart(t *testing.T) {
 		}
 	}
 }
+
+// Sign-in events hold email addresses and claim values: the chart keeps them 30 days.
+func TestAuthRetentionDefault(t *testing.T) {
+	if a := args(t, render(t)); !slices.Contains(a, "--auth-retention=720h") {
+		t.Errorf("args lack --auth-retention=720h: %v", a)
+	}
+}

@@ -43,7 +43,7 @@ func defaults() Config {
 		SessionKeyFile: "/s/key",
 		SessionAgeMax:  8 * time.Hour,
 		RetentionRuns:  4320 * time.Hour,
-		RetentionAuth:  8760 * time.Hour,
+		RetentionAuth:  720 * time.Hour, // sign-in events hold email addresses: kept 30 days
 
 		S3HistoryInterval: 5 * time.Minute,
 		DisplayTimezone:   "UTC",
