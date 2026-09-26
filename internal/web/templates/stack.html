@@ -14,12 +14,18 @@
   </dl>
 </section>
 {{if .S3On}}{{with .Stack.S3Error}}<p class="panel mb-4 px-4 py-2 text-sm text-muted" role="status">Pulumi history unavailable: {{.}}</p>{{end}}{{end}}
-<div class="mb-3 flex justify-end text-xs">{{if .Expand}}<a class="text-muted hover:text-ink" href="/stacks/{{.Stack.Namespace}}/{{.Stack.Name}}">Fold previews</a>{{else}}<a class="text-muted hover:text-ink" href="/stacks/{{.Stack.Namespace}}/{{.Stack.Name}}?previews=all">Show all previews</a>{{end}}</div>
+<div class="mb-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+  <p class="flex gap-2 text-muted">Show {{range .Pager.Sizes}}{{if .Current}}<span class="font-bold text-ink" aria-current="true">{{.N}}</span>{{else}}<a class="hover:text-ink" href="{{.URL}}">{{.N}}</a>{{end}}{{end}}</p>
+  {{template "pager" .Pager}}
+  <a class="text-muted hover:text-ink" href="{{.Pager.Toggle}}">{{if .Expand}}Fold previews{{else}}Show all previews{{end}}</a>
+</div>
 <div class="panel p-4">{{template "rail" .}}</div>
-{{if .Next}}<p class="mt-3 text-sm"><a class="text-muted hover:text-ink" href="/stacks/{{.Stack.Namespace}}/{{.Stack.Name}}?{{if .Expand}}previews=all&amp;{{end}}before={{cursor .Next}}">Older runs</a></p>{{end}}
+<div class="mt-3 flex justify-center text-sm">{{template "pager" .Pager}}</div>
 {{end}}
 
-{{define "rail"}}<div class="rail"{{if .Live}} hx-get="/fragments/stacks/{{.Stack.Namespace}}/{{.Stack.Name}}/runs{{if .Expand}}?previews=all{{end}}" hx-trigger="sse:{{stackEvent .Stack.Namespace .Stack.Name}}, sse:resync" hx-swap="outerHTML"{{end}}>
+{{define "pager"}}{{if or .Latest .Newer .Older}}<nav class="flex gap-4" aria-label="Pages">{{with .Latest}}<a class="text-muted hover:text-ink" href="{{.}}">Latest</a>{{end}}{{with .Newer}}<a class="text-muted hover:text-ink" href="{{.}}">Newer</a>{{end}}{{with .Older}}<a class="text-muted hover:text-ink" href="{{.}}">Older</a>{{end}}</nav>{{end}}{{end}}
+
+{{define "rail"}}<div class="rail"{{if .Live}} hx-get="{{.Pager.Live}}" hx-trigger="sse:{{stackEvent .Stack.Namespace .Stack.Name}}, sse:resync" hx-swap="outerHTML"{{end}}>
 {{range .Days}}<div class="rail-day">{{.Label}}</div>
 {{range .Items}}{{if .Node}}{{template "rail-node" .Node}}{{else}}<details class="rail-fold"><summary>{{len .Fold}} {{if eq (len .Fold) 1}}preview{{else}}previews{{end}}, no changes</summary>{{range .Fold}}<a class="rail-fold-run" href="/runs/{{.ID}}"><span class="font-mono text-xs">{{.UpdateName}}</span> <span class="text-muted">{{with .StartedAt}}{{age .}}{{end}}</span></a>{{end}}</details>{{end}}{{end}}
 {{else}}<p class="py-8 text-center text-muted">No runs yet.</p>{{end}}

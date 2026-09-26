@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -73,4 +74,28 @@ func runSortTime(r Run) time.Time {
 func newerThan(r Run, c Cursor) bool {
 	t := runSortTime(r)
 	return t.After(c.At) || (t.Equal(c.At) && r.ID > c.ID)
+}
+
+// TimelineNewerAnchor finds the page of limit state changes just newer than after, as the
+// before cursor that ListTimeline takes: the (limit+1)th state change newer than after.
+// Anchoring on the change that starts the next newer page keeps the page boundaries, and so
+// the previews each page shows, the same as paging older. found is false when the changes
+// newer than after fit on the latest page.
+func (s *Store) TimelineNewerAnchor(ctx context.Context, namespace, name string, after Cursor,
+	limit int) (anchor Cursor, found bool, err error) {
+	assert(limit > 0 && limit <= RunsPageMax, "runs limit")
+	err = s.pool.QueryRow(ctx, `
+		SELECT COALESCE(started_at, observed_at), id FROM runs
+		WHERE namespace = $1 AND stack_name = $2 AND type = ANY($3::text[])
+		  AND (COALESCE(started_at, observed_at), id) > ($4, $5)
+		ORDER BY COALESCE(started_at, observed_at), id
+		OFFSET $6 LIMIT 1`, namespace, name, typeStrings(StateChangeTypes), after.At, after.ID,
+		limit).Scan(&anchor.At, &anchor.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Cursor{}, false, nil
+	}
+	if err != nil {
+		return Cursor{}, false, fmt.Errorf("timeline newer anchor: %w", err)
+	}
+	return anchor, true, nil
 }

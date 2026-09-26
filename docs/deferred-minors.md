@@ -83,7 +83,8 @@ where it lives. Items fixed later are marked with the commit that fixed them.
 - The flag list in `docs/design.md` lacks `--display-timezone`.
 - Dead code: `Reader.ListRuns` in web, `StackStats.HiddenPreviews`, and `StateChangeTypes`
   duplicating `DefaultRunTypes`.
-- The fold/expand toggle drops `before=`, returning to the first page.
+- ~~The fold/expand toggle drops `before=`, returning to the first page.~~ Fixed by the
+  stack page pager, which keeps the cursor and page size on every link.
 - Numbers filled on linked runs by the post-reset re-read appear only on reload.
 - List rows read `lc.resources` to build the resource summary, which makes timeline queries
   heavier.

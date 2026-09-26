@@ -181,3 +181,66 @@ func TestCountedCursorReplacesCountless(t *testing.T) {
 		t.Fatalf("cursor = %q %d, want p/k3 3", key, n)
 	}
 }
+
+func cursorOf(r Run) *Cursor { c := Cursor{At: runSortTime(r), ID: r.ID}; return &c }
+
+// Paging older and then newer again returns the same pages, and a newer page with nothing
+// newer than it is reported as the latest (nil anchor).
+func TestTimelineNewerAnchorRoundTrip(t *testing.T) {
+	s, _ := newTestStore(t)
+	for i := 1; i <= 7; i++ {
+		mustUpsert(t, s, timelineRun(fmt.Sprintf("up%d", i), RunTypeUp, _t0.Add(time.Duration(i)*time.Hour)))
+		mustUpsert(t, s, timelineRun(fmt.Sprintf("pv%d", i), RunTypePreview, _t0.Add(time.Duration(i)*time.Hour+time.Minute)))
+	}
+	type page struct{ changes, previews string }
+	var older []page
+	var befores []*Cursor
+	var before *Cursor
+	for {
+		c, p, next, err := s.ListTimeline(t.Context(), "ns", "s", before, 3)
+		must(t, err)
+		older = append(older, page{fmt.Sprint(names(c)), fmt.Sprint(names(p))})
+		befores = append(befores, before)
+		if next == nil {
+			break
+		}
+		before = next
+	}
+	if len(older) != 3 {
+		t.Fatalf("pages = %v, want 3", older)
+	}
+	for i := len(older) - 1; i > 0; i-- {
+		c, _, _, err := s.ListTimeline(t.Context(), "ns", "s", befores[i], 3)
+		must(t, err)
+		anchor, found, err := s.TimelineNewerAnchor(t.Context(), "ns", "s", *cursorOf(c[0]), 3)
+		must(t, err)
+		if i-1 == 0 {
+			if found {
+				t.Fatalf("newer than page 1 anchor = %v, want none (latest)", anchor)
+			}
+			continue
+		}
+		nc, np, _, err := s.ListTimeline(t.Context(), "ns", "s", &anchor, 3)
+		must(t, err)
+		if got := (page{fmt.Sprint(names(nc)), fmt.Sprint(names(np))}); got != older[i-1] {
+			t.Fatalf("newer page = %v, want %v", got, older[i-1])
+		}
+	}
+}
+
+// Previews do not count toward the page size, so they never move the anchor.
+func TestTimelineNewerAnchorSkipsPreviews(t *testing.T) {
+	s, _ := newTestStore(t)
+	up1 := timelineRun("up1", RunTypeUp, _t0)
+	mustUpsert(t, s, up1)
+	mustUpsert(t, s, timelineRun("pv1", RunTypePreview, _t0.Add(time.Minute)))
+	mustUpsert(t, s, timelineRun("up2", RunTypeUp, _t0.Add(2*time.Minute)))
+	mustUpsert(t, s, timelineRun("up3", RunTypeUp, _t0.Add(3*time.Minute)))
+	c, _, _, err := s.ListTimeline(t.Context(), "ns", "s", nil, 50)
+	must(t, err)
+	anchor, found, err := s.TimelineNewerAnchor(t.Context(), "ns", "s", *cursorOf(c[2]), 1)
+	must(t, err)
+	if !found || anchor.ID != c[0].ID {
+		t.Fatalf("anchor = %v, want up3 (id %d)", anchor, c[0].ID)
+	}
+}

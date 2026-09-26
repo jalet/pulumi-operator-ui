@@ -20,7 +20,8 @@ import (
 const (
 	_csp = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; " +
 		"connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
-	// One screen of history; older runs are a click away. Well under store.RunsPageMax.
+	// The default page size, in state changes; every size in pageSizes is under
+	// store.RunsPageMax.
 	runsPageSize = 50
 	readyTimeout = 2 * time.Second
 )
@@ -33,6 +34,8 @@ type Reader interface {
 		before *store.Cursor, limit int) ([]store.Run, *store.Cursor, error)
 	ListTimeline(ctx context.Context, namespace, name string, before *store.Cursor,
 		limit int) ([]store.Run, []store.Run, *store.Cursor, error)
+	TimelineNewerAnchor(ctx context.Context, namespace, name string, after store.Cursor,
+		limit int) (store.Cursor, bool, error)
 	GetRun(ctx context.Context, id int64) (store.Run, error)
 	StackStats(ctx context.Context, namespace, name string, f store.RunFilter,
 		since time.Time) (store.StackStats, error)
@@ -69,8 +72,8 @@ type server struct {
 type stackPage struct {
 	Stack  store.StackSummary
 	Days   []railDay
-	Next   *store.Cursor
-	Live   bool // first page only: older pages do not auto-refresh
+	Pager  pager
+	Live   bool // latest page only: other pages do not auto-refresh
 	Expand bool // ?previews=all: every preview is its own node
 	Stats  store.StackStats
 	S3On   bool // S3 history is enabled; a stored s3_error is stale otherwise
@@ -223,17 +226,27 @@ func (s *server) stackRow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) stackPage(w http.ResponseWriter, r *http.Request) {
-	var before *store.Cursor
-	if raw := r.URL.Query().Get("before"); raw != "" {
-		c, ok := parseCursor(raw)
-		if !ok {
-			s.renderError(w, r, http.StatusBadRequest, "Bad request", "The page cursor is invalid.")
+	ns, name := r.PathValue("ns"), r.PathValue("name")
+	q, ok := parseStackQuery(r.URL.Query())
+	if !ok {
+		s.renderError(w, r, http.StatusBadRequest, "Bad request", "The page cursor or size is invalid.")
+		return
+	}
+	if q.After != nil {
+		anchor, found, err := s.store.TimelineNewerAnchor(r.Context(), ns, name, *q.After, q.Limit)
+		if err != nil {
+			s.storeError(w, r, err)
 			return
 		}
-		before = c
+		if !found {
+			// Everything newer fits on the latest page, which is the live one.
+			latest := stackQuery{Limit: q.Limit, Expand: q.Expand}
+			http.Redirect(w, r, withQuery("/stacks/"+ns+"/"+name, latest.values()), http.StatusSeeOther)
+			return
+		}
+		q.Before, q.After = &anchor, nil
 	}
-	page, err := s.loadStackPage(r.Context(), r.PathValue("ns"), r.PathValue("name"), before,
-		r.URL.Query().Get("previews") == "all")
+	page, err := s.loadStackPage(r.Context(), ns, name, q)
 	if err != nil {
 		s.storeError(w, r, err)
 		return
@@ -241,9 +254,15 @@ func (s *server) stackPage(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, "stack", "layout", page, http.StatusOK)
 }
 
+// stackRuns renders the latest page's rail for live updates; cursors are ignored.
 func (s *server) stackRuns(w http.ResponseWriter, r *http.Request) {
-	page, err := s.loadStackPage(r.Context(), r.PathValue("ns"), r.PathValue("name"), nil,
-		r.URL.Query().Get("previews") == "all")
+	q, ok := parseStackQuery(r.URL.Query())
+	if !ok {
+		s.renderError(w, r, http.StatusBadRequest, "Bad request", "The page cursor or size is invalid.")
+		return
+	}
+	page, err := s.loadStackPage(r.Context(), r.PathValue("ns"), r.PathValue("name"),
+		stackQuery{Limit: q.Limit, Expand: q.Expand})
 	if err != nil {
 		s.storeError(w, r, err)
 		return
@@ -251,13 +270,13 @@ func (s *server) stackRuns(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, "stack", "rail", page, http.StatusOK)
 }
 
-func (s *server) loadStackPage(ctx context.Context, ns, name string, before *store.Cursor,
-	expand bool) (stackPage, error) {
+func (s *server) loadStackPage(ctx context.Context, ns, name string,
+	q stackQuery) (stackPage, error) {
 	st, err := s.store.GetStack(ctx, ns, name)
 	if err != nil {
 		return stackPage{}, err
 	}
-	changes, previews, next, err := s.store.ListTimeline(ctx, ns, name, before, runsPageSize)
+	changes, previews, next, err := s.store.ListTimeline(ctx, ns, name, q.Before, q.Limit)
 	if err != nil {
 		return stackPage{}, err
 	}
@@ -266,8 +285,9 @@ func (s *server) loadStackPage(ctx context.Context, ns, name string, before *sto
 	if err != nil {
 		return stackPage{}, err
 	}
-	return stackPage{Stack: st, Days: buildRail(changes, previews, s.now(), s.loc, expand),
-		Next: next, Live: before == nil, Expand: expand, Stats: stats,
+	return stackPage{Stack: st, Days: buildRail(changes, previews, s.now(), s.loc, q.Expand),
+		Pager: buildPager(ns, name, q, changes, next), Live: q.Before == nil,
+		Expand: q.Expand, Stats: stats,
 		S3On: s.s3Interval > 0}, nil
 }
 

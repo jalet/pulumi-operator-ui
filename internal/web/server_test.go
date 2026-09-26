@@ -30,6 +30,19 @@ type fakeReader struct {
 	pingErr error
 	gotCur  *store.Cursor
 	stats   store.StackStats
+
+	gotLimit int           // the page size ListTimeline was asked for
+	anchor   *store.Cursor // what TimelineNewerAnchor answers
+	gotAfter *store.Cursor // the cursor TimelineNewerAnchor was asked about
+}
+
+func (f *fakeReader) TimelineNewerAnchor(_ context.Context, _, _ string, after store.Cursor,
+	_ int) (store.Cursor, bool, error) {
+	f.gotAfter = &after
+	if f.anchor == nil {
+		return store.Cursor{}, false, nil
+	}
+	return *f.anchor, true, nil
 }
 
 func (f *fakeReader) StackStats(context.Context, string, string, store.RunFilter,
@@ -57,8 +70,8 @@ func (f *fakeReader) ListRuns(_ context.Context, _, _ string, _ store.RunFilter,
 }
 
 func (f *fakeReader) ListTimeline(_ context.Context, _, _ string, before *store.Cursor,
-	_ int) ([]store.Run, []store.Run, *store.Cursor, error) {
-	f.gotCur = before
+	limit int) ([]store.Run, []store.Run, *store.Cursor, error) {
+	f.gotCur, f.gotLimit = before, limit
 	var changes, previews []store.Run
 	for _, r := range f.runs {
 		if r.Type == store.RunTypePreview {
