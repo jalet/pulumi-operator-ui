@@ -150,8 +150,12 @@ func (c *Config) validate() error {
 	if c.SessionAgeMax < _sessionAgeFloor || c.SessionAgeMax > _sessionAgeCeiling {
 		errs = append(errs, errors.New("--session.max-age must be between 5m and 24h"))
 	}
+	if c.OIDC.Issuer != "" {
+		// Discovery and the token signing keys come from here.
+		errs = append(errs, validateHTTPSURL("--oidc.issuer", c.OIDC.Issuer))
+	}
 	if c.OIDC.RedirectURL != "" {
-		errs = append(errs, validateRedirectURL(c.OIDC.RedirectURL))
+		errs = append(errs, validateHTTPSURL("--oidc.redirect-url", c.OIDC.RedirectURL))
 	}
 	if c.DatabaseURL != "" {
 		errs = append(errs, validateDatabaseURL(c.DatabaseURL, c.DatabaseCAFile != ""))
@@ -159,15 +163,16 @@ func (c *Config) validate() error {
 	return errors.Join(errs...)
 }
 
-func validateRedirectURL(raw string) error {
+// validateHTTPSURL requires an https URL, allowing http only for localhost (the dev IdP).
+func validateHTTPSURL(flagName, raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {
-		return errors.New("--oidc.redirect-url: invalid")
+		return fmt.Errorf("%s: invalid", flagName)
 	}
 	if u.Scheme == "https" || (u.Scheme == "http" && isLocalhost(u.Hostname())) {
 		return nil
 	}
-	return errors.New("--oidc.redirect-url must be https (http only for localhost)")
+	return fmt.Errorf("%s must be https (http only for localhost)", flagName)
 }
 
 // validateDatabaseURL requires verified TLS off localhost: sslmode=verify-ca/verify-full,

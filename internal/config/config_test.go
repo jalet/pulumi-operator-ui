@@ -260,3 +260,18 @@ func TestDatabaseHostOverrideNeedsTLS(t *testing.T) {
 		}
 	}
 }
+
+// Discovery and the signing keys come from the issuer: over plain http they could be swapped.
+func TestIssuerMustBeHTTPS(t *testing.T) {
+	for issuer, wantErr := range map[string]bool{
+		"http://keycloak.internal/realms/x": true,
+		"https://idp.example":               false,
+		"http://localhost:5556":             false,
+		"http://127.0.0.1:5556":             false,
+	} {
+		_, err := Parse(with("--oidc.issuer="+issuer), testEnv)
+		if got := err != nil && strings.Contains(err.Error(), "--oidc.issuer"); got != wantErr {
+			t.Errorf("%s: err %v, want error %v", issuer, err, wantErr)
+		}
+	}
+}
