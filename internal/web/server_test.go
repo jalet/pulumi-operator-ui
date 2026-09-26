@@ -875,3 +875,56 @@ func TestStackPageGroupsNoChangeUps(t *testing.T) {
 		t.Error("want exactly one group; the latest run (#75) stays a node")
 	}
 }
+
+// driftReader lists prod and the preview-only prod-drift that checks it.
+func driftReader(state store.RunState) *fakeReader {
+	r := sampleReader()
+	at := _now.Add(-31 * time.Minute)
+	backend := "s3://state-bucket/pulumi/example"
+	r.stacks = []store.StackSummary{
+		{Stack: store.Stack{Namespace: "p", Name: "prod", Ready: true, BackendURL: backend,
+			Project: "example-infra", PulumiStack: "prod"}},
+		{Stack: store.Stack{Namespace: "p", Name: "prod-drift", Ready: true, Preview: true,
+			BackendURL: backend, Project: "example-infra", PulumiStack: "prod"},
+			LastPreview: &store.RunBrief{ID: 42, State: state, At: at}},
+	}
+	return r
+}
+
+func TestListFoldsDriftDetector(t *testing.T) {
+	_, body := get(t, newServer(t, driftReader(store.RunStateSucceeded), nil), "/")
+	for _, want := range []string{">Drift</th>", `href="/runs/42"`, "no drift", "31m ago",
+		`title="checked by prod-drift"`, "sse:" + events.StackEventName("p", "prod-drift")} {
+		if !strings.Contains(body, want) {
+			t.Errorf("list lacks %s", want)
+		}
+	}
+	if strings.Contains(body, `href="/stacks/p/prod-drift">prod-drift</a>`) {
+		t.Error("the drift detector still has its own row")
+	}
+}
+
+func TestListWithoutDetectorsHasNoDriftColumn(t *testing.T) {
+	if _, body := get(t, newServer(t, sampleReader(), nil), "/"); strings.Contains(body, ">Drift</th>") {
+		t.Error("Drift column shown without drift detectors")
+	}
+}
+
+func TestListShowsDriftFound(t *testing.T) {
+	_, body := get(t, newServer(t, driftReader(store.RunStateFailed), nil), "/")
+	if !strings.Contains(body, `tone-att`) || !strings.Contains(body, ">drift</span>") {
+		t.Error("a failed drift check is not shown as drift")
+	}
+}
+
+// A folded detector has no row, so its row fragment renders nothing; the Stack it checks
+// renders with its drift cell.
+func TestRowFragmentsWithDetector(t *testing.T) {
+	srv := newServer(t, driftReader(store.RunStateSucceeded), nil)
+	if resp, body := get(t, srv, "/fragments/stacks/p/prod-drift"); resp.StatusCode != http.StatusOK || body != "" {
+		t.Fatalf("detector row: %d %q, want 200 and nothing", resp.StatusCode, body)
+	}
+	if _, body := get(t, srv, "/fragments/stacks/p/prod"); !strings.Contains(body, "no drift") {
+		t.Fatalf("prod row lacks its drift cell:\n%s", body)
+	}
+}

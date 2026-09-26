@@ -286,7 +286,20 @@ func (s *server) stackRow(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	s.render(w, r, "stacks", "stack-row", st, http.StatusOK)
+	// The row carries the drift detectors that check this Stack; a detector folded into the
+	// Stack it checks has no row, so it renders nothing (and swaps nothing in).
+	all, err := s.store.ListStacks(r.Context())
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	for _, row := range foldDetectors(all) {
+		if row.Namespace == st.Namespace && row.Name == st.Name {
+			s.render(w, r, "stacks", "stack-row", row, http.StatusOK)
+			return
+		}
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func (s *server) stackPage(w http.ResponseWriter, r *http.Request) {

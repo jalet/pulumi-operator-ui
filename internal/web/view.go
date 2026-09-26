@@ -65,10 +65,15 @@ func noStart(st store.RunState) string {
 type counters struct{ Total, Ready, Reconciling, Attention int }
 
 // countStacks tallies the list page counters; Needs attention is Stalled plus Not ready.
-func countStacks(stacks []store.StackSummary) counters {
-	c := counters{Total: len(stacks)}
-	for _, s := range stacks {
-		switch health(s).Tone {
+// countStacks counts list rows; a Stack whose drift detector found drift needs attention.
+func countStacks(rows []stackRow) counters {
+	c := counters{Total: len(rows)}
+	for _, s := range rows {
+		tone := health(s.StackSummary).Tone
+		if tone == "ok" && s.drifted() {
+			tone = "att"
+		}
+		switch tone {
 		case "ok":
 			c.Ready++
 		case "run":
@@ -94,7 +99,8 @@ type counterView struct {
 }
 
 type listPage struct {
-	Stacks     []store.StackSummary
+	Stacks     []stackRow
+	HasDrift   bool // some row has a drift detector: show the Drift column
 	Counts     counters
 	Counters   []counterView
 	Namespaces []string
@@ -125,7 +131,9 @@ func buildListPage(all []store.StackSummary, ns string) listPage {
 		}
 	}
 	slices.Sort(namespaces)
-	c := countStacks(shown)
+	rows := foldDetectors(shown)
+	hasDrift := slices.ContainsFunc(rows, func(r stackRow) bool { return len(r.Drift) > 0 })
+	c := countStacks(rows)
 	chips := make([]chip, 0, len(namespaces)+1)
 	chips = append(chips, chip{Label: "All", Href: "/", On: ns == ""})
 	for _, n := range namespaces {
@@ -136,7 +144,7 @@ func buildListPage(all []store.StackSummary, ns string) listPage {
 		query = "?ns=" + url.QueryEscape(ns)
 	}
 	return listPage{
-		Stacks: shown, Counts: c, Namespaces: namespaces, Chips: chips, NS: ns,
+		Stacks: rows, HasDrift: hasDrift, Counts: c, Namespaces: namespaces, Chips: chips, NS: ns,
 		OverviewURL: "/fragments/stacks" + query, CountersURL: "/fragments/stacks/counters" + query,
 		Counters: []counterView{
 			{Label: "Stacks", Value: c.Total},

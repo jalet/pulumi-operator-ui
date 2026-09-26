@@ -75,7 +75,7 @@ func TestCountStacks(t *testing.T) {
 		{Stack: store.Stack{Reconciling: true}}, {Stack: store.Stack{Stalled: true}}, {},
 	}
 	want := counters{Total: 5, Ready: 2, Reconciling: 1, Attention: 2}
-	if got := countStacks(give); got != want {
+	if got := countStacks(foldDetectors(give)); got != want {
 		t.Fatalf("countStacks = %+v, want %+v", got, want)
 	}
 }
