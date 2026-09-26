@@ -63,12 +63,6 @@ func (f *fakeReader) GetStack(_ context.Context, ns, name string) (store.StackSu
 	return store.StackSummary{}, store.ErrNotFound
 }
 
-func (f *fakeReader) ListRuns(_ context.Context, _, _ string, _ store.RunFilter,
-	before *store.Cursor, _ int) ([]store.Run, *store.Cursor, error) {
-	f.gotCur = before
-	return f.runs, f.next, nil
-}
-
 func (f *fakeReader) ListTimeline(_ context.Context, _, _ string, before *store.Cursor,
 	limit int) ([]store.Run, []store.Run, *store.Cursor, error) {
 	f.gotCur, f.gotLimit = before, limit

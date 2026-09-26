@@ -42,7 +42,7 @@ func TestStackRepoURLStoredAndJoined(t *testing.T) {
 
 func TestDefaultTypesIncludeImport(t *testing.T) {
 	found := false
-	for _, typ := range DefaultRunTypes {
+	for _, typ := range StateChangeTypes {
 		found = found || typ == RunTypeImport
 	}
 	if !found {

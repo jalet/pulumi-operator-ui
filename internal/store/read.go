@@ -117,22 +117,20 @@ func (s *Store) GetStack(ctx context.Context, namespace, name string) (StackSumm
 	return st, nil
 }
 
-// RunFilter narrows a stack's timeline. Empty Types means DefaultRunTypes.
+// RunFilter narrows a stack's timeline. Empty Types means StateChangeTypes.
 type RunFilter struct {
 	Types []RunType
 }
 
-// Run type sets. The default hides previews, which PKO runs on every resync.
-var (
-	DefaultRunTypes = []RunType{RunTypeUp, RunTypeRefresh, RunTypeDestroy, RunTypeImport}
-	AllRunTypes     = []RunType{RunTypeUp, RunTypeRefresh, RunTypeDestroy, RunTypeImport,
-		RunTypePreview}
-)
+// AllRunTypes is every run type; StateChangeTypes, the default, leaves out previews, which
+// PKO runs on every resync.
+var AllRunTypes = []RunType{RunTypeUp, RunTypeRefresh, RunTypeDestroy, RunTypeImport,
+	RunTypePreview}
 
-// EffectiveTypes returns f.Types, or DefaultRunTypes when empty.
+// EffectiveTypes returns f.Types, or StateChangeTypes when empty.
 func (f RunFilter) EffectiveTypes() []RunType {
 	if len(f.Types) == 0 {
-		return DefaultRunTypes
+		return StateChangeTypes
 	}
 	return f.Types
 }
@@ -140,7 +138,6 @@ func (f RunFilter) EffectiveTypes() []RunType {
 // StackStats summarizes a stack's runs since a point in time.
 type StackStats struct {
 	Total, Succeeded, Failed int64 // runs of the selected types
-	HiddenPreviews           int64 // previews not selected
 }
 
 // ListRuns returns one page of a stack's runs matching f, newest first. The next cursor
@@ -178,20 +175,18 @@ func (s *Store) ListRuns(ctx context.Context, namespace, name string, f RunFilte
 	return runs, next, nil
 }
 
-// StackStats counts one stack's runs of the selected types started since the given time,
-// plus the previews the filter hides.
+// StackStats counts one stack's runs of the selected types started since the given time.
 func (s *Store) StackStats(ctx context.Context, namespace, name string, f RunFilter,
 	since time.Time) (StackStats, error) {
 	var st StackStats
 	err := s.pool.QueryRow(ctx, `
 		SELECT count(*) FILTER (WHERE type = ANY($3::text[])),
 		       count(*) FILTER (WHERE type = ANY($3::text[]) AND state = 'succeeded'),
-		       count(*) FILTER (WHERE type = ANY($3::text[]) AND state = 'failed'),
-		       count(*) FILTER (WHERE type = 'preview' AND NOT ('preview' = ANY($3::text[])))
+		       count(*) FILTER (WHERE type = ANY($3::text[]) AND state = 'failed')
 		FROM runs
 		WHERE namespace = $1 AND stack_name = $2 AND COALESCE(started_at, observed_at) >= $4`,
 		namespace, name, typeStrings(f.EffectiveTypes()), since).
-		Scan(&st.Total, &st.Succeeded, &st.Failed, &st.HiddenPreviews)
+		Scan(&st.Total, &st.Succeeded, &st.Failed)
 	if err != nil {
 		return StackStats{}, fmt.Errorf("stack stats: %w", err)
 	}

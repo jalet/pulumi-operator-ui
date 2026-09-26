@@ -244,7 +244,7 @@ func TestStackStats(t *testing.T) {
 		give RunFilter
 		want StackStats
 	}{
-		{"default", RunFilter{}, StackStats{Total: 4, Succeeded: 2, Failed: 1, HiddenPreviews: 2}},
+		{"default", RunFilter{}, StackStats{Total: 4, Succeeded: 2, Failed: 1}},
 		{"previews only", RunFilter{Types: []RunType{RunTypePreview}},
 			StackStats{Total: 2, Succeeded: 2}},
 		{"all", RunFilter{Types: AllRunTypes}, StackStats{Total: 6, Succeeded: 4, Failed: 1}},

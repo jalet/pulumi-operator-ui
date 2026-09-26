@@ -98,7 +98,9 @@ func (s *Store) SetHistoryCursor(ctx context.Context, bucket, prefix, key string
 	return nil
 }
 
-// InsertHistory stores e as pending; an existing key is left untouched (inserted false).
+// InsertHistory stores e as pending. For an existing key it fills columns that are still
+// empty (origin, message, repo, seq) and copies them onto the run the key is linked to;
+// inserted is false then.
 func (s *Store) InsertHistory(ctx context.Context, e HistoryEntry, seenAt time.Time) (
 	bool, error) {
 	if e.Key == "" || e.Type == "" || e.State == "" || e.Namespace == "" || e.StackName == "" {

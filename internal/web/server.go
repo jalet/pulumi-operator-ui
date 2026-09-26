@@ -32,8 +32,6 @@ const (
 type Reader interface {
 	ListStacks(ctx context.Context) ([]store.StackSummary, error)
 	GetStack(ctx context.Context, namespace, name string) (store.StackSummary, error)
-	ListRuns(ctx context.Context, namespace, name string, f store.RunFilter,
-		before *store.Cursor, limit int) ([]store.Run, *store.Cursor, error)
 	ListTimeline(ctx context.Context, namespace, name string, before *store.Cursor,
 		limit int) ([]store.Run, []store.Run, *store.Cursor, error)
 	TimelineNewerAnchor(ctx context.Context, namespace, name string, after store.Cursor,
