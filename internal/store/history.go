@@ -132,16 +132,31 @@ func (s *Store) InsertHistory(ctx context.Context, e HistoryEntry, seenAt time.T
 		    vcs_repo   = CASE WHEN s3_history.vcs_repo = ''   THEN EXCLUDED.vcs_repo
 		                      ELSE s3_history.vcs_repo END,
 		    seq        = COALESCE(s3_history.seq, EXCLUDED.seq)
+		WHERE (s3_history.exec_kind = '' AND EXCLUDED.exec_kind <> '')
+		   OR (s3_history.exec_agent = '' AND EXCLUDED.exec_agent <> '')
+		   OR (s3_history.message = '' AND EXCLUDED.message <> '')
+		   OR (s3_history.vcs_repo = '' AND EXCLUDED.vcs_repo <> '')
+		   OR (s3_history.seq IS NULL AND EXCLUDED.seq IS NOT NULL)
 		RETURNING (xmax = 0), run_id`,
 		e.Key, e.Bucket, e.Namespace, e.StackName, e.Type, e.State, e.StartedAt, e.EndedAt,
 		e.Commit, counts, seenAt, e.ExecKind, e.ExecAgent, e.Message, e.VCSRepo, seqArg(e.Seq)).
 		Scan(&inserted, &runID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil // an existing key with nothing left to fill
+	}
 	if err != nil {
 		return false, fmt.Errorf("insert history %s: %w", e.Key, err)
 	}
 	if !inserted && runID != nil {
-		if err := enrichRun(ctx, s.pool, *runID, e); err != nil {
+		changed, err := enrichRun(ctx, s.pool, *runID, e)
+		if err != nil {
 			return false, err
+		}
+		if changed {
+			s.pub.Publish(events.Event{Kind: events.KindRun, Namespace: e.Namespace,
+				Stack: e.StackName, RunID: *runID})
+			s.pub.Publish(events.Event{Kind: events.KindStack, Namespace: e.Namespace,
+				Stack: e.StackName})
 		}
 	}
 	return inserted, nil
@@ -150,24 +165,33 @@ func (s *Store) InsertHistory(ctx context.Context, e HistoryEntry, seenAt time.T
 // dbExec is satisfied by both the pool and a transaction.
 type dbExec interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
 // enrichRun copies origin and repository from a history entry onto its run, filling only
 // empty values; the commit subject becomes the title only for imported runs (named "s3:").
 // Runs backfilled from Stack.status.lastUpdate have no UID either, but they are operator
-// runs whose history message is PKO's, not a commit subject.
-func enrichRun(ctx context.Context, db dbExec, runID int64, e HistoryEntry) error {
-	_, err := db.Exec(ctx, `UPDATE runs SET
-		    exec_kind  = CASE WHEN exec_kind = ''  THEN $2 ELSE exec_kind END,
-		    exec_agent = CASE WHEN exec_agent = '' THEN $3 ELSE exec_agent END,
-		    vcs_repo   = CASE WHEN vcs_repo = ''   THEN $4 ELSE vcs_repo END,
-		    title      = CASE WHEN update_name LIKE 's3:%' AND title = '' THEN $5 ELSE title END,
-		    seq        = COALESCE(seq, $6)
-		WHERE id = $1`, runID, e.ExecKind, e.ExecAgent, e.VCSRepo, e.Message, seqArg(e.Seq))
-	if err != nil {
-		return fmt.Errorf("enrich run %d: %w", runID, err)
+// runs whose history message is PKO's, not a commit subject. It reports whether the run row
+// changed, so a caller can publish it.
+func enrichRun(ctx context.Context, db dbExec, runID int64, e HistoryEntry) (bool, error) {
+	var id int64
+	err := db.QueryRow(ctx, `UPDATE runs SET
+			exec_kind  = CASE WHEN exec_kind = ''  THEN $2 ELSE exec_kind END,
+			exec_agent = CASE WHEN exec_agent = '' THEN $3 ELSE exec_agent END,
+			vcs_repo   = CASE WHEN vcs_repo = ''   THEN $4 ELSE vcs_repo END,
+			title      = CASE WHEN update_name LIKE 's3:%' AND title = '' THEN $5 ELSE title END,
+			seq        = COALESCE(seq, $6)
+		WHERE id = $1 AND ((exec_kind = '' AND $2 <> '') OR (exec_agent = '' AND $3 <> '')
+		   OR (vcs_repo = '' AND $4 <> '') OR (update_name LIKE 's3:%' AND title = '' AND $5 <> '')
+		   OR (seq IS NULL AND $6::bigint IS NOT NULL))
+		RETURNING id`, runID, e.ExecKind, e.ExecAgent, e.VCSRepo, e.Message, seqArg(e.Seq)).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
 	}
-	return nil
+	if err != nil {
+		return false, fmt.Errorf("enrich run %d: %w", runID, err)
+	}
+	return true, nil
 }
 
 const (
@@ -319,13 +343,12 @@ func linkRun(ctx context.Context, tx pgx.Tx, e HistoryEntry, runID int64, src Co
 		ended_at = COALESCE(ended_at, $3) WHERE id = $1`, runID, e.StartedAt, e.EndedAt); err != nil {
 		return fmt.Errorf("fill run times: %w", err)
 	}
-	if err := enrichRun(ctx, tx, runID, e); err != nil {
+	if _, err := enrichRun(ctx, tx, runID, e); err != nil {
 		return err
 	}
 	if e.Commit != "" && (src == "" || src == CommitSourceStack) {
-		if _, err := tx.Exec(ctx, `UPDATE runs SET commit = $2, commit_source = 'history'
-			WHERE id = $1`, runID, e.Commit); err != nil {
-			return fmt.Errorf("upgrade commit: %w", err)
+		if err := upgradeCommit(ctx, tx, runID, e.Commit); err != nil {
+			return err
 		}
 	}
 	return setLinkState(ctx, tx, e.Bucket, e.Key, "linked", runID)
@@ -351,7 +374,7 @@ func importRun(ctx context.Context, tx pgx.Tx, e HistoryEntry) (int64, error) {
 	if err := insertChanges(ctx, tx, id, e.Counts); err != nil {
 		return 0, err
 	}
-	if err := enrichRun(ctx, tx, id, e); err != nil {
+	if _, err := enrichRun(ctx, tx, id, e); err != nil {
 		return 0, err
 	}
 	return id, setLinkState(ctx, tx, e.Bucket, e.Key, "imported", id)
@@ -369,13 +392,24 @@ func insertChanges(ctx context.Context, tx pgx.Tx, runID int64, counts map[strin
 	return nil
 }
 
+// upgradeCommit replaces an approximate commit with the history's exact one; an exact
+// commit from the Update is never replaced.
+func upgradeCommit(ctx context.Context, tx pgx.Tx, runID int64, commit string) error {
+	if _, err := tx.Exec(ctx, `UPDATE runs SET commit = $2, commit_source = 'history'
+		WHERE id = $1 AND commit_source IN ('', 'stack')`, runID, commit); err != nil {
+		return fmt.Errorf("upgrade commit %d: %w", runID, err)
+	}
+	return nil
+}
+
 func setLinkState(ctx context.Context, tx pgx.Tx, bucket, key, state string, runID int64) error {
 	var id *int64
 	if runID != 0 {
 		id = &runID
 	}
+	// Only a pending entry moves: another writer may have linked it since it was read.
 	if _, err := tx.Exec(ctx, `UPDATE s3_history SET link_state = $3, run_id = $4
-		WHERE bucket = $1 AND key = $2`, bucket, key, state, id); err != nil {
+		WHERE bucket = $1 AND key = $2 AND link_state = 'pending'`, bucket, key, state, id); err != nil {
 		return fmt.Errorf("set link state: %w", err)
 	}
 	return nil

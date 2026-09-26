@@ -3,6 +3,8 @@ package store
 import (
 	"testing"
 	"time"
+
+	"github.com/jalet/pulumi-operator-ui/internal/events"
 )
 
 func TestMigrationAllowsImportType(t *testing.T) {
@@ -166,5 +168,77 @@ func TestImportEntryDoesNotBlockBackfillLink(t *testing.T) {
 	if state, id := historyRow(t, s, _histKey); state != "linked" || id == nil ||
 		*id != getRunByName(t, s, "ns", "prod-1a0d").ID {
 		t.Fatalf("up entry = %s %v, want linked to the backfilled run", state, id)
+	}
+}
+
+// A re-read that fills a linked run's origin or number publishes it, so open pages update.
+func TestRereadEnrichmentPublishes(t *testing.T) {
+	s, pub := newTestStore(t)
+	r := seedRun(t, s, "u1", RunTypeUp, RunStateSucceeded, _t0, CommitSourceStack)
+	seedEntry(t, s, _histKey, _t0)
+	link(t, s, _t0.Add(time.Hour))
+	pub.reset()
+	e := withOrigin(entry(_histKey, RunTypeUp, RunStateSucceeded, _t0))
+	e.Seq = 7
+	_, err := s.InsertHistory(t.Context(), e, _t0)
+	must(t, err)
+	got, err := s.GetRun(t.Context(), r.ID) // getRunByName does not read seq
+	must(t, err)
+	if got.Seq == nil || *got.Seq != 7 {
+		t.Fatalf("run seq = %v, want 7", got.Seq)
+	}
+	if k := pub.kinds(); len(k) != 2 || k[0] != events.KindRun || k[1] != events.KindStack {
+		t.Fatalf("events = %v, want run then stack", k)
+	}
+	pub.reset()
+	_, err = s.InsertHistory(t.Context(), e, _t0)
+	must(t, err)
+	if k := pub.kinds(); len(k) != 0 {
+		t.Fatalf("unchanged re-read published %v", k)
+	}
+}
+
+// A conflict that has nothing to fill leaves the row as it is.
+func TestHistoryRereadDoesNotRewrite(t *testing.T) {
+	s, _ := newTestStore(t)
+	e := withOrigin(entry(_histKey, RunTypeUp, RunStateSucceeded, _t0))
+	e.Seq = 3
+	_, err := s.InsertHistory(t.Context(), e, _t0)
+	must(t, err)
+	xmin := func() string {
+		var x string
+		must(t, s.pool.QueryRow(t.Context(), `SELECT xmin::text FROM s3_history
+			WHERE bucket = $1 AND key = $2`, e.Bucket, e.Key).Scan(&x))
+		return x
+	}
+	before := xmin()
+	_, err = s.InsertHistory(t.Context(), e, _t0)
+	must(t, err)
+	if after := xmin(); after != before {
+		t.Fatalf("row rewritten: xmin %s then %s", before, after)
+	}
+}
+
+// Link writes assume the state they read; they must not overwrite a row another writer
+// already moved on.
+func TestLinkWritesAreGuarded(t *testing.T) {
+	s, _ := newTestStore(t)
+	seedEntry(t, s, _histKey, _t0)
+	_, err := s.pool.Exec(t.Context(), `UPDATE s3_history SET link_state = 'linked' WHERE key = $1`, _histKey)
+	must(t, err)
+	tx, err := s.pool.Begin(t.Context())
+	must(t, err)
+	must(t, setLinkState(t.Context(), tx, "b", _histKey, "ambiguous", 0))
+	must(t, tx.Commit(t.Context()))
+	if state, _ := historyRow(t, s, _histKey); state != "linked" {
+		t.Fatalf("link_state = %s, want linked kept", state)
+	}
+	r := seedRun(t, s, "u2", RunTypeUp, RunStateSucceeded, _t0, CommitSourceUpdate)
+	tx, err = s.pool.Begin(t.Context())
+	must(t, err)
+	must(t, upgradeCommit(t.Context(), tx, r.ID, "fedcba9"))
+	must(t, tx.Commit(t.Context()))
+	if got := getRunByName(t, s, "ns", "u2"); got.CommitSource != CommitSourceUpdate {
+		t.Fatalf("exact commit overwritten: %+v", got)
 	}
 }
