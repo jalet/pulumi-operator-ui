@@ -114,7 +114,7 @@ func TestRunEndToEnd(t *testing.T) {
 func login(t *testing.T, c *http.Client, base string) *http.Cookie {
 	t.Helper()
 	resp := mustGet(t, c, base+"/auth/login", nil)
-	flow := cookieNamed(t, resp, "__Host-pou_flow")
+	flow := cookieNamed(t, resp, "__Host-pou_flow_") // one per login, suffixed by its state
 	atIDP := mustGet(t, c, resp.Header.Get("Location"), nil)
 	callback := mustGet(t, c, atIDP.Header.Get("Location"), flow)
 	if callback.StatusCode != http.StatusSeeOther {
@@ -165,7 +165,9 @@ func getBody(t *testing.T, c *http.Client, u string, cookie *http.Cookie) string
 func cookieNamed(t *testing.T, resp *http.Response, name string) *http.Cookie {
 	t.Helper()
 	for _, c := range resp.Cookies() {
-		if c.Name == name && c.MaxAge >= 0 && c.Value != "" {
+		// A name ending in "_" matches by prefix: the flow cookie carries its login's state.
+		match := c.Name == name || (strings.HasSuffix(name, "_") && strings.HasPrefix(c.Name, name))
+		if match && c.MaxAge >= 0 && c.Value != "" {
 			return &http.Cookie{Name: c.Name, Value: c.Value}
 		}
 	}
