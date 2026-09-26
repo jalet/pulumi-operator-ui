@@ -9,6 +9,7 @@
   </div>
   <dl class="flex flex-wrap gap-6 text-xs">
     <div><dt class="text-muted">Health</dt><dd class="mt-1">{{template "pill" (health .Stack)}}</dd></div>
+    {{range .Drift}}<div><dt class="text-muted">Drift</dt><dd class="mt-1"><a class="inline-flex items-center gap-2 whitespace-nowrap hover:underline" href="/stacks/{{.Detector.Namespace}}/{{.Detector.Name}}" title="checked by {{.Detector.Name}}">{{template "pill" .}}{{with .Last}}<span class="text-xs text-muted">{{age .At}}</span>{{end}}</a></dd></div>{{end}}
     <div><dt class="text-muted">Runs (7d)</dt><dd class="mt-1 text-base font-bold">{{.Stats.Total}}</dd></div>
     <div><dt class="text-muted">Success</dt><dd class="mt-1 text-base font-bold">{{successRate .Stats}}</dd></div>
   </dl>

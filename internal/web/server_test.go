@@ -928,3 +928,16 @@ func TestRowFragmentsWithDetector(t *testing.T) {
 		t.Fatalf("prod row lacks its drift cell:\n%s", body)
 	}
 }
+
+// The stack page names the drift detector that checks it, so the detector stays reachable.
+func TestStackPageShowsItsDriftDetector(t *testing.T) {
+	_, body := get(t, newServer(t, driftReader(store.RunStateSucceeded), nil), "/stacks/p/prod")
+	for _, want := range []string{">Drift</dt>", `href="/stacks/p/prod-drift"`, "no drift"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("stack page lacks %s", want)
+		}
+	}
+	if _, body := get(t, newServer(t, sampleReader(), nil), "/stacks/ns/app"); strings.Contains(body, ">Drift</dt>") {
+		t.Error("a stack without a detector shows a Drift entry")
+	}
+}
