@@ -145,3 +145,20 @@ func TestSaveLogKeepsTruncation(t *testing.T) {
 		t.Fatal("LogTruncated = false, want true")
 	}
 }
+
+// The start time and the end time can arrive in different observations.
+func TestRunPendingWhenTimesArriveSeparately(t *testing.T) {
+	s, _ := newTestStore(t)
+	r := finished("u1", _t0)
+	end := r.EndedAt
+	r.State, r.EndedAt = RunStateRunning, nil
+	mustUpsert(t, s, r)
+	r.State, r.StartedAt, r.EndedAt = RunStateSucceeded, nil, end
+	mustUpsert(t, s, r)
+	id := getRunByName(t, s, r.Namespace, r.UpdateName).ID
+	got, err := s.GetRun(t.Context(), id) // getRunByName does not read log_status
+	must(t, err)
+	if got.LogStatus != LogStatusPending {
+		t.Fatalf("log_status = %q, want pending", got.LogStatus)
+	}
+}

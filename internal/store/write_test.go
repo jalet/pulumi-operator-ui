@@ -343,3 +343,37 @@ func TestUpsertRunKeepsEarliestObservedAt(t *testing.T) {
 		t.Fatalf("observed_at = %v, want %v", got, _t0)
 	}
 }
+
+func TestUpsertRunUnchangedPublishesNothing(t *testing.T) {
+	s, pub := newTestStore(t)
+	r := run("ns", "u1", RunStateRunning)
+	mustUpsert(t, s, r)
+	pub.reset()
+	r.ObservedAt = r.ObservedAt.Add(time.Minute) // a later observation of the same state
+	mustUpsert(t, s, r)
+	if k := pub.kinds(); len(k) != 0 {
+		t.Fatalf("unchanged run published %v", k)
+	}
+	r.State = RunStateSucceeded
+	mustUpsert(t, s, r)
+	if k := pub.kinds(); len(k) != 2 {
+		t.Fatalf("finished run published %v, want run and stack", k)
+	}
+}
+
+func TestUpsertStackUnchangedPublishesNothing(t *testing.T) {
+	s, pub := newTestStore(t)
+	st := Stack{Namespace: "ns", Name: "app", Ready: true, UpdatedAt: _t0}
+	must(t, s.UpsertStack(t.Context(), st))
+	pub.reset()
+	st.UpdatedAt = _t0.Add(time.Minute) // every reconcile stamps a new time
+	must(t, s.UpsertStack(t.Context(), st))
+	if k := pub.kinds(); len(k) != 0 {
+		t.Fatalf("unchanged stack published %v", k)
+	}
+	st.Ready = false
+	must(t, s.UpsertStack(t.Context(), st))
+	if k := pub.kinds(); len(k) != 1 {
+		t.Fatalf("changed stack published %v, want one event", k)
+	}
+}

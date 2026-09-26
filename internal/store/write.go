@@ -11,6 +11,33 @@ import (
 	"github.com/jalet/pulumi-operator-ui/internal/events"
 )
 
+// Each column's merged value on conflict. The same expression sets the column and decides
+// whether the row changed; observed_at is left out of the check, so a later observation of
+// the same state writes and publishes nothing.
+const (
+	_mergeUID    = `COALESCE(EXCLUDED.uid, runs.uid)`
+	_mergeCommit = `CASE WHEN EXCLUDED.commit_source = 'update' AND EXCLUDED.commit <> ''
+	                       THEN EXCLUDED.commit
+	                     WHEN runs.commit = '' THEN EXCLUDED.commit
+	                     ELSE runs.commit END`
+	_mergeCommitSource = `CASE WHEN EXCLUDED.commit_source = 'update' AND EXCLUDED.commit <> ''
+	                       THEN 'update'
+	                     WHEN runs.commit = '' THEN EXCLUDED.commit_source
+	                     ELSE runs.commit_source END`
+	_mergeState = `CASE WHEN runs.state IN ('succeeded', 'failed') THEN runs.state
+	                    ELSE EXCLUDED.state END`
+	_mergeMessage = `CASE WHEN EXCLUDED.message <> '' THEN EXCLUDED.message ELSE runs.message END`
+	_mergeStarted = `COALESCE(runs.started_at, EXCLUDED.started_at)`
+	_mergeEnded   = `COALESCE(runs.ended_at, EXCLUDED.ended_at)`
+	// A run queues for log capture once the merged row is finished with both times known.
+	_mergeLogStatus = `CASE WHEN runs.log_status <> '' THEN runs.log_status
+	                        WHEN (` + _mergeState + `) IN ('succeeded', 'failed')
+	                             AND (` + _mergeUID + `) IS NOT NULL
+	                             AND (` + _mergeStarted + `) IS NOT NULL
+	                             AND (` + _mergeEnded + `) IS NOT NULL
+	                        THEN 'pending' ELSE '' END`
+)
+
 const _upsertRun = `
 INSERT INTO runs (namespace, update_name, uid, stack_name, type, commit, commit_source,
                   state, message, started_at, ended_at, observed_at, log_status)
@@ -20,26 +47,17 @@ VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8, $9, $10, $11, $12,
                   AND $11::timestamptz IS NOT NULL
              THEN 'pending' ELSE '' END)
 ON CONFLICT (namespace, update_name) DO UPDATE SET
-    uid           = COALESCE(EXCLUDED.uid, runs.uid),
-    stack_name    = EXCLUDED.stack_name,
-    type          = EXCLUDED.type,
-    commit        = CASE WHEN EXCLUDED.commit_source = 'update' AND EXCLUDED.commit <> ''
-                           THEN EXCLUDED.commit
-                         WHEN runs.commit = '' THEN EXCLUDED.commit
-                         ELSE runs.commit END,
-    commit_source = CASE WHEN EXCLUDED.commit_source = 'update' AND EXCLUDED.commit <> ''
-                           THEN 'update'
-                         WHEN runs.commit = '' THEN EXCLUDED.commit_source
-                         ELSE runs.commit_source END,
-    state         = CASE WHEN runs.state IN ('succeeded', 'failed') THEN runs.state
-                         ELSE EXCLUDED.state END,
-    message       = CASE WHEN EXCLUDED.message <> '' THEN EXCLUDED.message
-                         ELSE runs.message END,
-    started_at    = COALESCE(runs.started_at, EXCLUDED.started_at),
-    ended_at      = COALESCE(runs.ended_at, EXCLUDED.ended_at),
-    observed_at   = LEAST(runs.observed_at, EXCLUDED.observed_at),
-    log_status    = CASE WHEN runs.log_status = '' THEN EXCLUDED.log_status
-                         ELSE runs.log_status END
+    uid = ` + _mergeUID + `, stack_name = EXCLUDED.stack_name, type = EXCLUDED.type,
+    commit = ` + _mergeCommit + `, commit_source = ` + _mergeCommitSource + `,
+    state = ` + _mergeState + `, message = ` + _mergeMessage + `,
+    started_at = ` + _mergeStarted + `, ended_at = ` + _mergeEnded + `,
+    observed_at = LEAST(runs.observed_at, EXCLUDED.observed_at),
+    log_status = ` + _mergeLogStatus + `
+WHERE (runs.uid, runs.stack_name, runs.type, runs.commit, runs.commit_source, runs.state,
+       runs.message, runs.started_at, runs.ended_at, runs.log_status)
+  IS DISTINCT FROM (` + _mergeUID + `, EXCLUDED.stack_name, EXCLUDED.type, ` + _mergeCommit +
+	`, ` + _mergeCommitSource + `, ` + _mergeState + `, ` + _mergeMessage + `, ` +
+	_mergeStarted + `, ` + _mergeEnded + `, ` + _mergeLogStatus + `)
 RETURNING id`
 
 // _backfillRun merges a run seen through Stack.status.lastUpdate (always terminal). It
@@ -76,7 +94,11 @@ RETURNING id`
 func (s *Store) UpsertRun(ctx context.Context, r Run) error {
 	assertRun(r)
 	var id int64
-	if err := s.pool.QueryRow(ctx, _upsertRun, runArgs(r)...).Scan(&id); err != nil {
+	err := s.pool.QueryRow(ctx, _upsertRun, runArgs(r)...).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil // nothing changed
+	}
+	if err != nil {
 		return fmt.Errorf("upsert run %s/%s: %w", r.Namespace, r.UpdateName, err)
 	}
 	s.publishRun(r, id)
@@ -115,7 +137,7 @@ func (s *Store) UpsertStack(ctx context.Context, st Stack) error {
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("upsert stack %s/%s: %w", st.Namespace, st.Name, err)
 	}
-	_, err = tx.Exec(ctx, `
+	tag, err := tx.Exec(ctx, `
 		INSERT INTO stacks (namespace, name, ready, reconciling, stalled, last_commit, updated_at,
 		                    backend_url, project, pulumi_stack, preview, repo_url)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
@@ -125,7 +147,13 @@ func (s *Store) UpsertStack(ctx context.Context, st Stack) error {
 		    updated_at = EXCLUDED.updated_at, deleted_at = NULL,
 		    backend_url = EXCLUDED.backend_url, project = EXCLUDED.project,
 		    pulumi_stack = EXCLUDED.pulumi_stack, preview = EXCLUDED.preview,
-		    repo_url = EXCLUDED.repo_url`,
+		    repo_url = EXCLUDED.repo_url
+		WHERE (stacks.ready, stacks.reconciling, stacks.stalled, stacks.last_commit,
+		       stacks.deleted_at, stacks.backend_url, stacks.project, stacks.pulumi_stack,
+		       stacks.preview, stacks.repo_url)
+		  IS DISTINCT FROM (EXCLUDED.ready, EXCLUDED.reconciling, EXCLUDED.stalled,
+		       EXCLUDED.last_commit, NULL::timestamptz, EXCLUDED.backend_url, EXCLUDED.project,
+		       EXCLUDED.pulumi_stack, EXCLUDED.preview, EXCLUDED.repo_url)`,
 		st.Namespace, st.Name, st.Ready, st.Reconciling, st.Stalled, st.LastCommit, st.UpdatedAt,
 		st.BackendURL, st.Project, st.PulumiStack, st.Preview, st.RepoURL)
 	if err != nil {
@@ -133,6 +161,9 @@ func (s *Store) UpsertStack(ctx context.Context, st Stack) error {
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("upsert stack %s/%s: commit: %w", st.Namespace, st.Name, err)
+	}
+	if existed && deletedAt == nil && tag.RowsAffected() == 0 {
+		return nil // only updated_at would have moved: nothing to show
 	}
 	kind := events.KindStack
 	if !existed || deletedAt != nil {
