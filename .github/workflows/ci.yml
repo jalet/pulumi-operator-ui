@@ -21,6 +21,26 @@ jobs:
         with:
           persist-credentials: false
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      # mise-action caches the tools; this caches Go's own work: downloaded modules, compiled
+      # packages, golangci-lint's analysis and the envtest binaries. The key follows mise.lock
+      # (the Go and tool versions) and go.sum; a partial hit still reuses most of it.
+      - name: Go cache paths
+        id: go-paths
+        run: |
+          {
+            echo "mod=$(go env GOMODCACHE)"
+            echo "build=$(go env GOCACHE)"
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-paths.outputs.mod }}
+            ${{ steps.go-paths.outputs.build }}
+            ~/.cache/golangci-lint
+            ~/.local/share/kubebuilder-envtest
+          key: go-${{ runner.os }}-${{ hashFiles('mise.lock') }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ hashFiles('mise.lock') }}-
       - name: CSS is up to date
         run: mise run css:check
       - name: Lint
@@ -34,4 +54,6 @@ jobs:
       - name: Build image
         env:
           VERSION: ci
-        run: ko build --push=false ./cmd/pulumi-operator-ui
+        # CI only checks that the image builds: one platform, reusing the Go cache. Releases
+        # build both.
+        run: ko build --push=false --platform=linux/amd64 ./cmd/pulumi-operator-ui
