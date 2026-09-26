@@ -102,6 +102,13 @@
   .rail-dot-att { background: var(--pou-attention); box-shadow: 0 0 0 2px var(--pou-attention); }
   .rail-dot-run { background: var(--pou-run); box-shadow: 0 0 0 2px var(--pou-run); animation: pou-pulse 1.6s ease-in-out infinite; }
   .rail-dot-hollow { background: var(--color-panel); box-shadow: 0 0 0 2px var(--pou-run); }
+  /* A group of ups without changes: a small muted dot on the rail and a summary that opens to
+     the runs it holds. */
+  .rail-group > summary { cursor: pointer; list-style: none; }
+  .rail-group > summary::-webkit-details-marker { display: none; }
+  .rail-dot-group { background: var(--color-panel); box-shadow: 0 0 0 2px var(--pou-neutral); }
+  .rail-group[open] > summary { opacity: .7; }
+  .rail-group-body { border-left: 2px solid var(--color-line); margin-left: 34px; padding-left: 8px; }
   .rail-fold { margin-left: 96px; padding: 2px 0; font-size: 12px; color: var(--color-muted); }
   .rail-fold > summary { cursor: pointer; }
   .rail-fold-run { display: block; padding: 2px 0 2px 12px; }

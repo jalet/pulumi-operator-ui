@@ -49,6 +49,8 @@ func parsePages(now func() time.Time, themeURL string,
 			return u
 		},
 		"age":             func(t any) string { return age(now(), t) },
+		"ageSpan":         func(oldest, newest any) string { return ageSpan(now(), oldest, newest) },
+		"last":            func(s []store.Run) int { return len(s) - 1 },
 		"iso":             func(t any) string { return timeOf(t).UTC().Format(time.RFC3339) },
 		"shortCommit":     shortCommit,
 		"health":          health,
@@ -159,6 +161,16 @@ func timeOf(v any) time.Time {
 		}
 	}
 	return time.Time{}
+}
+
+// ageSpan is "16h to 14h ago" for a group from oldest to newest, or one age when they read
+// the same.
+func ageSpan(now time.Time, oldest, newest any) string {
+	from, to := age(now, oldest), age(now, newest)
+	if from == to || from == "" {
+		return to
+	}
+	return strings.TrimSuffix(from, " ago") + " to " + to
 }
 
 func age(now time.Time, v any) string {

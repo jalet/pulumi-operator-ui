@@ -17,7 +17,7 @@
 <div class="mb-3 flex flex-wrap items-center justify-between gap-3 text-xs">
   <p class="flex gap-2 text-muted">Show {{range .Pager.Sizes}}{{if .Current}}<span class="font-bold text-ink" aria-current="true">{{.N}}</span>{{else}}<a class="hover:text-ink" href="{{.URL}}">{{.N}}</a>{{end}}{{end}}</p>
   {{template "pager" .Pager}}
-  <a class="text-muted hover:text-ink" href="{{.Pager.Toggle}}">{{if .Expand}}Fold previews{{else}}Show all previews{{end}}</a>
+  <a class="text-muted hover:text-ink" href="{{.Pager.Toggle}}">{{if .Expand}}Group runs{{else}}Show all runs{{end}}</a>
 </div>
 <div class="panel p-4">{{template "rail" .}}</div>
 <div class="mt-3 flex justify-center text-sm">{{template "pager" .Pager}}</div>
@@ -27,9 +27,18 @@
 
 {{define "rail"}}<div class="rail"{{if .Live}} hx-get="{{.Pager.Live}}" hx-trigger="sse:{{stackEvent .Stack.Namespace .Stack.Name}}, sse:resync" hx-swap="outerHTML"{{end}}>
 {{range .Days}}<div class="rail-day">{{.Label}}</div>
-{{range .Items}}{{if .Node}}{{template "rail-node" .Node}}{{else}}<details class="rail-fold" id="fold-{{.FoldID}}"><summary>{{len .Fold}} {{if eq (len .Fold) 1}}preview{{else}}previews{{end}}, no changes</summary>{{range .Fold}}<a class="rail-fold-run" href="/runs/{{.ID}}"><span class="font-mono text-xs">{{.UpdateName}}</span> <span class="text-muted">{{with .StartedAt}}{{age .}}{{end}}</span></a>{{end}}</details>{{end}}{{end}}
+{{range .Items}}{{if .Node}}{{template "rail-node" .Node}}{{else if .Group}}{{template "rail-group" .}}{{else}}{{template "rail-fold" .}}{{end}}{{end}}
 {{else}}<p class="py-8 text-center text-muted">No runs yet.</p>{{end}}
 </div>{{end}}
+
+{{define "rail-fold"}}<details class="rail-fold" id="fold-{{.FoldID}}"><summary>{{len .Fold}} {{if eq (len .Fold) 1}}preview{{else}}previews{{end}}, no changes</summary>{{range .Fold}}<a class="rail-fold-run" href="/runs/{{.ID}}"><span class="font-mono text-xs">{{.UpdateName}}</span> <span class="text-muted">{{with .StartedAt}}{{age .}}{{end}}</span></a>{{end}}</details>{{end}}
+
+{{define "rail-group"}}{{$ups := .GroupUps}}<details class="rail-group" id="group-{{.FoldID}}"><summary class="rail-node">
+  <span class="rail-dot rail-dot-group"></span>
+  <span class="rail-num">{{.GroupRange}}</span>
+  <div class="min-w-0 text-muted"><b class="text-ink">{{len $ups}} ups</b>, no changes</div>
+  <div class="whitespace-nowrap text-right text-xs text-muted">{{ageSpan (index $ups (last $ups)).StartedAt (index $ups 0).StartedAt}}</div>
+</summary><div class="rail-group-body">{{range .Group}}{{if .Node}}{{template "rail-node" .Node}}{{else}}{{template "rail-fold" .}}{{end}}{{end}}</div></details>{{end}}
 
 {{define "rail-node"}}{{$r := .Run}}<div id="run-{{$r.ID}}" class="rail-node" hx-get="/fragments/runs/{{$r.ID}}/row" hx-trigger="sse:run-{{$r.ID}}" hx-swap="outerHTML">
   <span class="rail-dot{{if eq $r.State "failed"}} rail-dot-bad{{else if .Drift}} rail-dot-att{{else if eq $r.State "running" "pending"}} rail-dot-run{{else if eq $r.Type "refresh"}} rail-dot-hollow{{end}}"></span>

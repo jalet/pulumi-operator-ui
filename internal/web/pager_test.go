@@ -125,7 +125,7 @@ func TestStackPageSizeLinks(t *testing.T) {
 		`aria-current="true">25<`,
 		`href="/stacks/ns/app?before=1758801600000000000.5">50<`,
 		`href="/stacks/ns/app?before=1758801600000000000.5&amp;limit=100">100<`,
-		`href="/stacks/ns/app?before=1758801600000000000.5&amp;limit=25&amp;previews=all">Show all previews<`,
+		`href="/stacks/ns/app?before=1758801600000000000.5&amp;limit=25&amp;previews=all">Show all runs<`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lacks %s", want)

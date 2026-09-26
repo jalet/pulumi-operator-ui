@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -849,5 +850,28 @@ func TestHSTSOnlyOverHTTPS(t *testing.T) {
 	t.Cleanup(srv.Close)
 	if resp, _ := get(t, srv, "/healthz"); resp.Header.Get("Strict-Transport-Security") != "max-age=31536000" {
 		t.Errorf("HSTS = %q", resp.Header.Get("Strict-Transport-Security"))
+	}
+}
+
+// Ups without changes render as one range node that still holds each run.
+func TestStackPageGroupsNoChangeUps(t *testing.T) {
+	r := sampleReader()
+	r.runs = nil
+	for i, seq := range []int64{75, 74, 73, 72} {
+		at := _now.Add(-time.Duration(i+1) * time.Hour)
+		s := seq
+		r.runs = append(r.runs, store.Run{ID: 100 + int64(i), Namespace: "ns", UpdateName: fmt.Sprintf("u%d", seq),
+			StackName: "app", Type: store.RunTypeUp, State: store.RunStateSucceeded, StartedAt: &at,
+			ObservedAt: at, Seq: &s, LogChanges: map[string]int64{"same": 9}})
+	}
+	_, body := get(t, newServer(t, r, nil), "/stacks/ns/app")
+	for _, want := range []string{`<details class="rail-group" id="group-103">`, ">#72-74<",
+		"3 ups</b>, no changes", "4h to 2h ago", `id="run-101"`, `id="run-100"`, ">Show all runs<"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page lacks %s", want)
+		}
+	}
+	if strings.Count(body, `class="rail-group"`) != 1 {
+		t.Error("want exactly one group; the latest run (#75) stays a node")
 	}
 }

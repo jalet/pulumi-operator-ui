@@ -349,7 +349,8 @@ func (s *server) loadStackPage(ctx context.Context, ns, name string,
 	if err != nil {
 		return stackPage{}, err
 	}
-	return stackPage{Stack: st, Days: buildRail(changes, previews, s.now(), s.loc, q.Expand),
+	return stackPage{Stack: st, Days: buildRail(changes, previews, s.now(), s.loc, q.Expand,
+		q.Before == nil),
 		Pager: buildPager(ns, name, q, changes, next), Live: q.Before == nil,
 		Expand: q.Expand, Stats: stats,
 		S3On: s.s3Interval > 0}, nil

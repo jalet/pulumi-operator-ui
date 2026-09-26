@@ -15,7 +15,7 @@ document.addEventListener("click", (event) => {
 // The rail is re-rendered on live updates; reopen the preview folds the viewer had open.
 let openFolds = [];
 document.addEventListener("htmx:beforeSwap", (event) => {
-  openFolds = Array.from(event.detail.target.querySelectorAll("details.rail-fold[open]"),
+  openFolds = Array.from(event.detail.target.querySelectorAll("details.rail-fold[open], details.rail-group[open]"),
     (d) => d.id);
 });
 document.addEventListener("htmx:afterSwap", () => {
