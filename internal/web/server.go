@@ -81,7 +81,8 @@ type stackPage struct {
 	Live   bool // latest page only: other pages do not auto-refresh
 	Expand bool // ?previews=all: every preview is its own node
 	Stats  store.StackStats
-	S3On   bool // S3 history is enabled; a stored s3_error is stale otherwise
+	S3On   bool        // S3 history is enabled; a stored s3_error is stale otherwise
+	Drift  []driftView // the drift detectors that check this Stack
 }
 
 // statsWindow is how far back the stack header counts runs.
@@ -286,7 +287,20 @@ func (s *server) stackRow(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	s.render(w, r, "stacks", "stack-row", st, http.StatusOK)
+	// The row carries the drift detectors that check this Stack; a detector folded into the
+	// Stack it checks has no row, so it renders nothing (and swaps nothing in).
+	all, err := s.store.ListStacks(r.Context())
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	for _, row := range foldDetectors(all) {
+		if row.Namespace == st.Namespace && row.Name == st.Name {
+			s.render(w, r, "stacks", "stack-row", row, http.StatusOK)
+			return
+		}
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func (s *server) stackPage(w http.ResponseWriter, r *http.Request) {
@@ -342,6 +356,16 @@ func (s *server) loadStackPage(ctx context.Context, ns, name string,
 	if err != nil {
 		return stackPage{}, err
 	}
+	all, err := s.store.ListStacks(ctx)
+	if err != nil {
+		return stackPage{}, err
+	}
+	var drift []driftView
+	for _, d := range all {
+		if watches(d, st) {
+			drift = append(drift, newDrift(d))
+		}
+	}
 	changes, previews, next, err := s.store.ListTimeline(ctx, ns, name, q.Before, q.Limit)
 	if err != nil {
 		return stackPage{}, err
@@ -354,7 +378,7 @@ func (s *server) loadStackPage(ctx context.Context, ns, name string,
 	return stackPage{Stack: st, Days: buildRail(changes, previews, s.now(), s.loc, q.Expand,
 		q.Before == nil),
 		Pager: buildPager(ns, name, q, changes, next), Live: q.Before == nil,
-		Expand: q.Expand, Stats: stats,
+		Expand: q.Expand, Stats: stats, Drift: drift,
 		S3On: s.s3Interval > 0}, nil
 }
 

@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/rs/zerolog"
 
 	"github.com/jalet/pulumi-operator-ui/internal/auth"
@@ -873,5 +874,117 @@ func TestStackPageGroupsNoChangeUps(t *testing.T) {
 	}
 	if strings.Count(body, `class="rail-group"`) != 1 {
 		t.Error("want exactly one group; the latest run (#75) stays a node")
+	}
+}
+
+// driftReader lists prod and the preview-only prod-drift that checks it.
+func driftReader(state store.RunState) *fakeReader {
+	r := sampleReader()
+	at := _now.Add(-31 * time.Minute)
+	backend := "s3://state-bucket/pulumi/example"
+	r.stacks = []store.StackSummary{
+		{Stack: store.Stack{Namespace: "p", Name: "prod", Ready: true, BackendURL: backend,
+			Project: "example-infra", PulumiStack: "prod"}},
+		{Stack: store.Stack{Namespace: "p", Name: "prod-drift", Ready: true, Preview: true,
+			BackendURL: backend, Project: "example-infra", PulumiStack: "prod"},
+			LastPreview: &store.RunBrief{ID: 42, State: state, At: at}},
+	}
+	return r
+}
+
+func TestListFoldsDriftDetector(t *testing.T) {
+	_, body := get(t, newServer(t, driftReader(store.RunStateSucceeded), nil), "/")
+	for _, want := range []string{">Drift</th>", `href="/runs/42"`, "no drift", "31m ago",
+		`title="checked by prod-drift"`, "sse:" + events.StackEventName("p", "prod-drift")} {
+		if !strings.Contains(body, want) {
+			t.Errorf("list lacks %s", want)
+		}
+	}
+	if strings.Contains(body, `href="/stacks/p/prod-drift">prod-drift</a>`) {
+		t.Error("the drift detector still has its own row")
+	}
+}
+
+func TestListWithoutDetectorsHasNoDriftColumn(t *testing.T) {
+	if _, body := get(t, newServer(t, sampleReader(), nil), "/"); strings.Contains(body, ">Drift</th>") {
+		t.Error("Drift column shown without drift detectors")
+	}
+}
+
+func TestListShowsDriftFound(t *testing.T) {
+	_, body := get(t, newServer(t, driftReader(store.RunStateFailed), nil), "/")
+	if !strings.Contains(body, `tone-att`) || !strings.Contains(body, ">drift</span>") {
+		t.Error("a failed drift check is not shown as drift")
+	}
+}
+
+// A folded detector has no row, so its row fragment renders nothing; the Stack it checks
+// renders with its drift cell.
+func TestRowFragmentsWithDetector(t *testing.T) {
+	srv := newServer(t, driftReader(store.RunStateSucceeded), nil)
+	if resp, body := get(t, srv, "/fragments/stacks/p/prod-drift"); resp.StatusCode != http.StatusOK || body != "" {
+		t.Fatalf("detector row: %d %q, want 200 and nothing", resp.StatusCode, body)
+	}
+	if _, body := get(t, srv, "/fragments/stacks/p/prod"); !strings.Contains(body, "no drift") {
+		t.Fatalf("prod row lacks its drift cell:\n%s", body)
+	}
+}
+
+// The stack page names the drift detector that checks it, so the detector stays reachable.
+func TestStackPageShowsItsDriftDetector(t *testing.T) {
+	_, body := get(t, newServer(t, driftReader(store.RunStateSucceeded), nil), "/stacks/p/prod")
+	for _, want := range []string{">Drift</dt>", `href="/stacks/p/prod-drift"`, "no drift"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("stack page lacks %s", want)
+		}
+	}
+	if _, body := get(t, newServer(t, sampleReader(), nil), "/stacks/ns/app"); strings.Contains(body, ">Drift</dt>") {
+		t.Error("a stack without a detector shows a Drift entry")
+	}
+}
+
+// rowCells counts the cells of each list row, in order.
+func rowCells(body string) []int {
+	var out []int
+	for _, row := range strings.Split(body, "<tr id=")[1:] {
+		row, _, _ = strings.Cut(row, "</tr>")
+		out = append(out, strings.Count(row, "<td"))
+	}
+	return out
+}
+
+// mixedReader adds a Stack without a detector to driftReader's pair.
+func mixedReader() *fakeReader {
+	r := driftReader(store.RunStateSucceeded)
+	r.stacks = append(r.stacks, store.StackSummary{Stack: store.Stack{Namespace: "p",
+		Name: "staging", Ready: true}})
+	return r
+}
+
+// Once the Drift column shows, every row has its cell, detector or not.
+func TestListMixedRowsKeepTheirColumns(t *testing.T) {
+	_, body := get(t, newServer(t, mixedReader(), nil), "/")
+	if diff := cmp.Diff([]int{6, 6}, rowCells(body)); diff != "" {
+		t.Fatalf("cells per row (-want +got):\n%s", diff)
+	}
+	_, frag := get(t, newServer(t, mixedReader(), nil), "/fragments/stacks/p/staging")
+	if diff := cmp.Diff([]int{6}, rowCells(frag)); diff != "" {
+		t.Fatalf("row fragment cells (-want +got):\n%s", diff)
+	}
+}
+
+// A detector in another namespace is folded the same way whatever the namespace filter, so
+// the page and the row fragments agree.
+func TestListFilterFoldsAcrossNamespaces(t *testing.T) {
+	r := driftReader(store.RunStateSucceeded)
+	target := "p/prod"
+	r.stacks[1].Namespace, r.stacks[1].Watches = "ops", &target
+	_, body := get(t, newServer(t, r, nil), "/?ns=p")
+	if !strings.Contains(body, ">Drift</th>") || !strings.Contains(body, "no drift") {
+		t.Error("the filtered list lost the drift check from another namespace")
+	}
+	_, body = get(t, newServer(t, r, nil), "/?ns=ops")
+	if strings.Contains(body, `href="/stacks/ops/prod-drift"`) {
+		t.Error("a folded detector has a row in its own namespace's view")
 	}
 }

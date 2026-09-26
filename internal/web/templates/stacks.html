@@ -11,7 +11,7 @@
 <div class="panel overflow-x-auto">
 <table class="w-full text-sm">
 <thead><tr class="border-b border-line text-left text-[11px] uppercase tracking-wider text-muted">
-<th class="px-3 py-2 font-semibold">Stack</th><th class="px-3 py-2 font-semibold">Health</th><th class="px-3 py-2 font-semibold">Last up</th><th class="px-3 py-2 font-semibold">Last preview</th><th class="px-3 py-2 font-semibold">Commit</th>
+<th class="px-3 py-2 font-semibold">Stack</th><th class="px-3 py-2 font-semibold">Health</th><th class="px-3 py-2 font-semibold">Last up</th><th class="px-3 py-2 font-semibold">Last preview</th>{{if .HasDrift}}<th class="px-3 py-2 font-semibold">Drift</th>{{end}}<th class="px-3 py-2 font-semibold">Commit</th>
 </tr></thead>
 <tbody>
 {{range .Stacks}}{{template "stack-row" .}}{{else}}<tr><td colspan="5" class="px-3 py-8 text-center text-muted">{{if $.NS}}No stacks in this namespace.{{else}}No stacks found.{{end}}</td></tr>{{end}}
@@ -24,12 +24,17 @@
      resync of many stacks costs one request. The table rows refresh themselves. */}}
 {{define "stack-counters"}}<div id="stack-counters" class="mb-4 flex flex-wrap gap-2" hx-get="{{.CountersURL}}" hx-trigger="sse:stack-any delay:500ms" hx-swap="outerHTML">{{range .Counters}}{{template "counter" .}}{{end}}</div>{{end}}
 
-{{define "stack-row"}}<tr id="{{stackEvent .Namespace .Name}}" class="border-b border-line last:border-0" hx-get="/fragments/stacks/{{.Namespace}}/{{.Name}}" hx-trigger="sse:{{stackEvent .Namespace .Name}}" hx-swap="outerHTML">
+{{/* A row also refreshes when a drift detector that checks it changes. */}}
+{{define "stack-row"}}<tr id="{{stackEvent .Namespace .Name}}" class="border-b border-line last:border-0" hx-get="/fragments/stacks/{{.Namespace}}/{{.Name}}" hx-trigger="sse:{{stackEvent .Namespace .Name}}{{range .Drift}}, sse:{{stackEvent .Detector.Namespace .Detector.Name}}{{end}}" hx-swap="outerHTML">
   <td class="px-3 py-2.5 whitespace-nowrap"><a class="font-bold hover:underline" href="/stacks/{{.Namespace}}/{{.Name}}">{{.Name}}</a> <span class="text-muted">{{.Namespace}}</span></td>
-  <td class="px-3 py-2.5">{{template "pill" (health .)}}</td>
+  <td class="px-3 py-2.5">{{template "pill" (health .StackSummary)}}</td>
   <td class="px-3 py-2.5">{{template "last-run" .LastUp}}</td>
   <td class="px-3 py-2.5">{{template "last-run" .LastPreview}}</td>
+  {{if .ShowDrift}}<td class="px-3 py-2.5">{{range .Drift}}{{template "drift" .}}{{else}}<span class="text-muted">none</span>{{end}}</td>{{end}}
   <td class="px-3 py-2.5">{{if .LastCommit}}<code>{{shortCommit .LastCommit}}</code>{{else}}<span class="text-muted">none</span>{{end}}</td>
 </tr>{{end}}
 
 {{define "last-run"}}{{if .}}<a class="inline-flex items-center gap-2 whitespace-nowrap hover:underline" href="/runs/{{.ID}}">{{template "pill" (stateBadge .State)}}<span class="text-xs text-muted">{{age .At}}{{with duration .StartedAt .EndedAt}} · {{.}}{{end}}</span></a>{{else}}<span class="text-muted">none</span>{{end}}{{end}}
+
+{{/* One drift detector's latest check: its state, and how long ago, linking to that run. */}}
+{{define "drift"}}{{if .Last}}<a class="inline-flex items-center gap-2 whitespace-nowrap hover:underline" href="/runs/{{.Last.ID}}" title="checked by {{.Detector.Name}}">{{template "pill" .}}<span class="text-xs text-muted">{{age .Last.At}}</span></a>{{else}}<a class="text-muted hover:underline" href="/stacks/{{.Detector.Namespace}}/{{.Detector.Name}}" title="checked by {{.Detector.Name}}">{{.Label}}</a>{{end}}{{end}}

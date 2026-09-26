@@ -107,6 +107,10 @@ func SkipReason(err error) string {
 	}
 }
 
+// WatchesAnnotation on a preview Stack (a drift detector) names the Stack it checks, as
+// "name" or "namespace/name", overriding the automatic pairing; an empty value opts it out.
+const WatchesAnnotation = "pulumi-operator-ui/watches"
+
 // StackFromObject maps a Stack to its row.
 func StackFromObject(obj *unstructured.Unstructured, now time.Time) (store.Stack, error) {
 	var s stackObj
@@ -127,6 +131,10 @@ func StackFromObject(obj *unstructured.Unstructured, now time.Time) (store.Stack
 	}
 	if s.Status.ProjectInfo != nil {
 		st.Project = s.Status.ProjectInfo.Name
+	}
+	if v, ok := obj.GetAnnotations()[WatchesAnnotation]; ok {
+		v = strings.TrimSpace(v)
+		st.Watches = &v
 	}
 	if s.Status.LastUpdate != nil {
 		st.LastCommit = s.Status.LastUpdate.LastSuccessfulCommit

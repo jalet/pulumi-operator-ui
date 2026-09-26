@@ -96,11 +96,14 @@ type Stack struct {
 	LastCommit  string
 	UpdatedAt   time.Time
 	DeletedAt   *time.Time
-	BackendURL  string     // spec.backend
-	Project     string     // status.projectInfo.name
-	PulumiStack string     // spec.stack
-	RepoURL     string     // spec.projectRepo
-	Preview     bool       // spec.preview
+	BackendURL  string // spec.backend
+	Project     string // status.projectInfo.name
+	PulumiStack string // spec.stack
+	RepoURL     string // spec.projectRepo
+	Preview     bool   // spec.preview
+	// Watches is a preview Stack's pulumi-operator-ui/watches annotation: nil when absent,
+	// "" to opt out of pairing, else "name" or "namespace/name" of the Stack it checks.
+	Watches     *string
 	S3Error     string     // last S3 history error, "" when fine; written by SetStackS3Status
 	S3CheckedAt *time.Time // last successful S3 history poll
 }

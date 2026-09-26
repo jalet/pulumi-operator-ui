@@ -377,3 +377,57 @@ func TestUpsertStackUnchangedPublishesNothing(t *testing.T) {
 		t.Fatalf("changed stack published %v, want one event", k)
 	}
 }
+
+// A drift detector's pairing override survives a round trip, as absent, opted out or naming
+// its target, and the stack reads carry spec.preview too.
+func TestStackWatchesRoundTrip(t *testing.T) {
+	s, pub := newTestStore(t)
+	empty, target := "", "infra/prod"
+	for _, tc := range []struct {
+		name    string
+		watches *string
+	}{{"none", nil}, {"out", &empty}, {"named", &target}} {
+		st := Stack{Namespace: "ns", Name: tc.name, Preview: true, Watches: tc.watches, UpdatedAt: _t0}
+		must(t, s.UpsertStack(t.Context(), st))
+		got, err := s.GetStack(t.Context(), "ns", tc.name)
+		must(t, err)
+		if !got.Preview || !equalPtr(got.Watches, tc.watches) {
+			t.Errorf("%s: preview %v watches %v, want true %v", tc.name, got.Preview, got.Watches, tc.watches)
+		}
+	}
+	pub.reset()
+	st := Stack{Namespace: "ns", Name: "none", Preview: true, Watches: &target, UpdatedAt: _t0}
+	must(t, s.UpsertStack(t.Context(), st))
+	if k := pub.kinds(); len(k) != 1 {
+		t.Fatalf("a changed watches published %v, want one event", k)
+	}
+}
+
+func equalPtr(a, b *string) bool {
+	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
+}
+
+// A change that can pair or unpair a drift detector reshapes the stack list, so it publishes
+// a stack-set event; other changes publish only the stack's own event.
+func TestPairingChangePublishesStackSet(t *testing.T) {
+	s, pub := newTestStore(t)
+	target := "prod"
+	st := Stack{Namespace: "ns", Name: "prod-drift", Preview: true, UpdatedAt: _t0}
+	must(t, s.UpsertStack(t.Context(), st))
+	for _, change := range []func(*Stack){
+		func(st *Stack) { st.Project = "example-infra" },
+		func(st *Stack) { st.Watches = &target },
+		func(st *Stack) { st.Ready = true },
+		func(st *Stack) { st.PulumiStack = "prod" },
+		func(st *Stack) { st.BackendURL = "s3://b" },
+		func(st *Stack) { st.Preview = false },
+	} {
+		change(&st)
+		must(t, s.UpsertStack(t.Context(), st))
+	}
+	want := []events.Kind{events.KindStackSet, events.KindStackSet, events.KindStackSet,
+		events.KindStack, events.KindStackSet, events.KindStackSet, events.KindStackSet}
+	if diff := cmp.Diff(want, pub.kinds()); diff != "" {
+		t.Fatalf("(-want +got):\n%s", diff)
+	}
+}

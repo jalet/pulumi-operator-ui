@@ -64,11 +64,15 @@ func noStart(st store.RunState) string {
 
 type counters struct{ Total, Ready, Reconciling, Attention int }
 
-// countStacks tallies the list page counters; Needs attention is Stalled plus Not ready.
-func countStacks(stacks []store.StackSummary) counters {
-	c := counters{Total: len(stacks)}
-	for _, s := range stacks {
-		switch health(s).Tone {
+// countStacks counts list rows; a Stack whose drift detector found drift needs attention.
+func countStacks(rows []stackRow) counters {
+	c := counters{Total: len(rows)}
+	for _, s := range rows {
+		tone := health(s.StackSummary).Tone
+		if tone == "ok" && s.drifted() {
+			tone = "att"
+		}
+		switch tone {
 		case "ok":
 			c.Ready++
 		case "run":
@@ -94,7 +98,8 @@ type counterView struct {
 }
 
 type listPage struct {
-	Stacks     []store.StackSummary
+	Stacks     []stackRow
+	HasDrift   bool // some row has a drift detector: show the Drift column
 	Counts     counters
 	Counters   []counterView
 	Namespaces []string
@@ -111,21 +116,21 @@ type listPage struct {
 func buildListPage(all []store.StackSummary, ns string) listPage {
 	seen := map[string]bool{}
 	var namespaces []string
-	shown := all
-	if ns != "" {
-		shown = nil
-	}
 	for _, s := range all {
 		if !seen[s.Namespace] {
 			seen[s.Namespace] = true
 			namespaces = append(namespaces, s.Namespace)
 		}
-		if ns != "" && s.Namespace == ns {
-			shown = append(shown, s)
-		}
 	}
 	slices.Sort(namespaces)
-	c := countStacks(shown)
+	// Fold over every stack, then filter, so a detector in another namespace still shows on
+	// the Stack it checks, and the page agrees with the row fragments.
+	rows := foldDetectors(all)
+	hasDrift := len(rows) > 0 && rows[0].ShowDrift
+	if ns != "" {
+		rows = slices.DeleteFunc(rows, func(r stackRow) bool { return r.Namespace != ns })
+	}
+	c := countStacks(rows)
 	chips := make([]chip, 0, len(namespaces)+1)
 	chips = append(chips, chip{Label: "All", Href: "/", On: ns == ""})
 	for _, n := range namespaces {
@@ -136,7 +141,7 @@ func buildListPage(all []store.StackSummary, ns string) listPage {
 		query = "?ns=" + url.QueryEscape(ns)
 	}
 	return listPage{
-		Stacks: shown, Counts: c, Namespaces: namespaces, Chips: chips, NS: ns,
+		Stacks: rows, HasDrift: hasDrift, Counts: c, Namespaces: namespaces, Chips: chips, NS: ns,
 		OverviewURL: "/fragments/stacks" + query, CountersURL: "/fragments/stacks/counters" + query,
 		Counters: []counterView{
 			{Label: "Stacks", Value: c.Total},

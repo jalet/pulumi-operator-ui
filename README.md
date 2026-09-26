@@ -85,6 +85,24 @@ readiness. A deleted or archived history file is passed over; access denied hold
 history until the permission is fixed. The legacy non-project layout
 (`PULUMI_DIY_BACKEND_LEGACY_LAYOUT`) is not supported.
 
+## Drift detectors
+
+A common PKO setup runs a second, preview-only `Stack` (`spec.preview: true`, often with
+`expectNoChanges`) that previews the same Pulumi stack on a schedule to catch drift. The list
+folds such a detector into the Stack it checks: no row of its own, but a **Drift** column on
+the Stack it checks with the latest check ("no drift", "drift", "checking"), and a found drift
+counts as needing attention. The Stack's page links to the detector.
+
+A preview-only Stack is paired with the non-preview Stack in its namespace that has the same
+`spec.backend`, project and `spec.stack`. To pair it explicitly, for example across
+namespaces, or to keep it as a row of its own, annotate the detector:
+
+```yaml
+metadata:
+  annotations:
+    pulumi-operator-ui/watches: prod            # or "namespace/prod"; "" keeps it a row
+```
+
 ## Colors
 
 The UI follows the OS light or dark setting. Every color is a token, and the chart's `theme`

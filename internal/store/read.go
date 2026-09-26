@@ -44,7 +44,7 @@ type Cursor struct {
 const _stackSummarySelect = `
 SELECT s.namespace, s.name, s.ready, s.reconciling, s.stalled, s.last_commit, s.updated_at,
        s.deleted_at, s.backend_url, s.project, s.pulumi_stack, s.s3_error, s.s3_checked_at,
-       s.repo_url,
+       s.repo_url, s.preview, s.watches,
        p.id, p.state, p.at, p.commit, p.started_at, p.ended_at,
        u.id, u.state, u.at, u.commit, u.started_at, u.ended_at
 FROM stacks s
@@ -256,6 +256,7 @@ func scanStackSummary(row pgx.CollectableRow) (StackSummary, error) {
 	err := row.Scan(&st.Namespace, &st.Name, &st.Ready, &st.Reconciling, &st.Stalled,
 		&st.LastCommit, &st.UpdatedAt, &st.DeletedAt,
 		&st.BackendURL, &st.Project, &st.PulumiStack, &st.S3Error, &st.S3CheckedAt, &st.RepoURL,
+		&st.Preview, &st.Watches,
 		&p.id, &p.state, &p.at, &p.commit, &p.started, &p.ended,
 		&u.id, &u.state, &u.at, &u.commit, &u.started, &u.ended)
 	if err != nil {
