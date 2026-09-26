@@ -90,3 +90,18 @@ where it lives. Items fixed later are marked with the commit that fixed them.
   heavier.
 - Test gaps: numbering after a mid-listing fetch error, the reset re-read filling `seq` on
   linked runs, `key_count` across a prune, and the wording of `TestTickCountsTooOldKeys`.
+
+## Configurable colors
+
+- Browsers without `color-mix()` (before about 2023) get full-strength pill backgrounds from
+  Tailwind's `@supports` fallback.
+- `TestInputCSSColorsAreTokens` catches only hex and `rgb(`; named colors, `hsl()`/`oklch()`
+  and Tailwind palette utilities in templates would pass.
+- `TestPaletteContrast` does not check `badText` or `neutralText`.
+- No theme example in `docs/design.md` or the README, only the `values.yaml` comment.
+- A non-string or wrongly cased key in a hand-written theme file gives a vague error or is
+  accepted; the chart schema catches both.
+- `app.css` and the other static assets are cached as immutable at any `?v=`, so a rolling
+  update can pin an old copy (fixed for the theme sheet in `cc41ad0`).
+- Schema rejection of an unquoted `#fff` was verified on Helm v4.3.0 only; Argo's bundled Helm
+  may drop the null first.
