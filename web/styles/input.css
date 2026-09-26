@@ -11,11 +11,6 @@
 @theme {
   --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --color-brand-sky: #4cc2ff;
-  --color-brand-green: #34a853;
-  --color-brand-yellow: #fbbc05;
-  --color-brand-orange: #ff9902;
-  --color-brand-red: #ea4335;
 }
 
 /* Surfaces switch with the OS theme; utilities like bg-panel follow automatically. */
@@ -29,22 +24,34 @@
 }
 
 @layer base {
+  /* tokens:start */
+  /* Every color in the UI. internal/theme's sheet (/static/theme.css) overrides these, and
+     TestInputCSSColorsAreTokens keeps colors out of the rest of this file. */
   :root {
     color-scheme: light dark;
     --pou-page: #f6f7f9; --pou-panel: #ffffff; --pou-line: #e3e6eb;
     --pou-ink: #060a17; --pou-muted: #5b6472;
-    /* Light mode needs darker accents than the brand colors for WCAG AA contrast. */
+    /* Light mode needs darker accents than the status colors for WCAG AA contrast. */
     --pou-focus: #b35f00;
-    --pou-counter-ok: #1e7a3a; --pou-counter-run: #0b6c9e; --pou-counter-att: #8a6400;
+    --pou-ok: #34a853; --pou-run: #4cc2ff; --pou-attention: #fbbc05; --pou-bad: #ea4335;
+    --pou-neutral: #949ba8;
+    --pou-ok-text: #1e7a3a; --pou-run-text: #0b6c9e; --pou-attention-text: #8a6400;
+    --pou-bad-text: #b3261e; --pou-neutral-text: #4a5361;
+    --pou-brand-1: #4cc2ff; --pou-brand-2: #34a853; --pou-brand-3: #fbbc05;
+    --pou-brand-4: #ff9902; --pou-brand-5: #ea4335;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --pou-page: #0a0a0f; --pou-panel: #10131c; --pou-line: #1f2431;
       --pou-ink: #f4f5f7; --pou-muted: #9aa1ad;
       --pou-focus: #ff9902;
-      --pou-counter-ok: #34a853; --pou-counter-run: #4cc2ff; --pou-counter-att: #fbbc05;
+      --pou-ok: #34a853; --pou-run: #4cc2ff; --pou-attention: #fbbc05; --pou-bad: #ea4335;
+      --pou-neutral: #949ba8;
+      --pou-ok-text: #5fd07f; --pou-run-text: #7fd3ff; --pou-attention-text: #fcd15c;
+      --pou-bad-text: #f28b82; --pou-neutral-text: #b4bac5;
     }
   }
+  /* tokens:end */
   body { @apply bg-page text-ink font-sans antialiased; }
   a, button {
     @apply focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus;
@@ -56,14 +63,14 @@
 @layer components {
   .brand-bar {
     height: 4px;
-    background: linear-gradient(90deg, #4cc2ff 0 20%, #34a853 20% 40%, #fbbc05 40% 60%,
-      #ff9902 60% 80%, #ea4335 80% 100%);
+    background: linear-gradient(90deg, var(--pou-brand-1) 0 20%, var(--pou-brand-2) 20% 40%,
+      var(--pou-brand-3) 40% 60%, var(--pou-brand-4) 60% 80%, var(--pou-brand-5) 80% 100%);
   }
   .panel { @apply bg-panel border border-line rounded-xl; }
   .counter { @apply bg-panel border border-line rounded-xl px-4 py-3 min-w-24; }
-  .counter-ok { color: var(--pou-counter-ok); }
-  .counter-run { color: var(--pou-counter-run); }
-  .counter-att { color: var(--pou-counter-att); }
+  .counter-ok { color: var(--pou-ok-text); }
+  .counter-run { color: var(--pou-run-text); }
+  .counter-att { color: var(--pou-attention-text); }
   .chip {
     @apply inline-flex items-center gap-1 rounded-full border border-line px-3 py-0.5 text-xs text-muted hover:text-ink;
   }
@@ -72,42 +79,32 @@
     @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-px text-[11px] font-bold whitespace-nowrap;
   }
   .dot { @apply inline-block size-[7px] rounded-full; }
-  .tone-ok { background: rgb(52 168 83 / .12); color: #1e7a3a; }
-  .tone-run { background: rgb(76 194 255 / .16); color: #0b6c9e; }
-  .tone-att { background: rgb(251 188 5 / .18); color: #8a6400; }
-  .tone-bad { background: rgb(234 67 53 / .12); color: #b3261e; }
-  .tone-mute { background: rgb(148 155 168 / .16); color: #4a5361; }
-  .diff-add { color: #1e7a3a; }
-  .diff-del { color: #b3261e; }
-  .diff-upd { color: #0b6c9e; }
-  @media (prefers-color-scheme: dark) {
-    .tone-ok { background: rgb(52 168 83 / .15); color: #5fd07f; }
-    .tone-run { background: rgb(76 194 255 / .15); color: #7fd3ff; }
-    .tone-att { background: rgb(251 188 5 / .15); color: #fcd15c; }
-    .tone-bad { background: rgb(234 67 53 / .16); color: #f28b82; }
-    .tone-mute { background: rgb(148 155 168 / .14); color: #b4bac5; }
-    .diff-add { color: #5fd07f; }
-    .diff-del { color: #f28b82; }
-    .diff-upd { color: #7fd3ff; }
-  }
+  .tone-ok { background: color-mix(in srgb, var(--pou-ok) 12%, transparent); color: var(--pou-ok-text); }
+  .tone-run { background: color-mix(in srgb, var(--pou-run) 16%, transparent); color: var(--pou-run-text); }
+  .tone-att { background: color-mix(in srgb, var(--pou-attention) 18%, transparent); color: var(--pou-attention-text); }
+  .tone-bad { background: color-mix(in srgb, var(--pou-bad) 12%, transparent); color: var(--pou-bad-text); }
+  .tone-mute { background: color-mix(in srgb, var(--pou-neutral) 16%, transparent); color: var(--pou-neutral-text); }
+  .diff-add { color: var(--pou-ok-text); }
+  .diff-del { color: var(--pou-bad-text); }
+  .diff-upd { color: var(--pou-run-text); }
   .rail { position: relative; }
   .rail::before { content: ""; position: absolute; left: 11px; top: 4px; bottom: 4px; width: 2px; background: var(--color-line); }
   .rail-day { margin: 14px 0 6px 34px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--color-muted); }
   .rail-node { position: relative; display: grid; grid-template-columns: 34px 52px 1fr auto; align-items: start; gap: 10px; padding: 7px 0; }
   .rail-num { font-family: var(--font-mono); font-size: 12px; font-weight: 700; padding-top: 1px; }
-  .rail-dot { z-index: 1; width: 14px; height: 14px; margin: 3px 0 0 5px; border-radius: 9999px; border: 3px solid var(--color-panel); background: #34a853; box-shadow: 0 0 0 2px #34a853; }
-  .rail-dot-bad { background: #ea4335; box-shadow: 0 0 0 2px #ea4335; }
-  .rail-dot-att { background: #fbbc05; box-shadow: 0 0 0 2px #fbbc05; }
-  .rail-dot-run { background: #4cc2ff; box-shadow: 0 0 0 2px #4cc2ff; animation: pou-pulse 1.6s ease-in-out infinite; }
-  .rail-dot-hollow { background: var(--color-panel); box-shadow: 0 0 0 2px #4cc2ff; }
+  .rail-dot { z-index: 1; width: 14px; height: 14px; margin: 3px 0 0 5px; border-radius: 9999px; border: 3px solid var(--color-panel); background: var(--pou-ok); box-shadow: 0 0 0 2px var(--pou-ok); }
+  .rail-dot-bad { background: var(--pou-bad); box-shadow: 0 0 0 2px var(--pou-bad); }
+  .rail-dot-att { background: var(--pou-attention); box-shadow: 0 0 0 2px var(--pou-attention); }
+  .rail-dot-run { background: var(--pou-run); box-shadow: 0 0 0 2px var(--pou-run); animation: pou-pulse 1.6s ease-in-out infinite; }
+  .rail-dot-hollow { background: var(--color-panel); box-shadow: 0 0 0 2px var(--pou-run); }
   .rail-fold { margin-left: 96px; padding: 2px 0; font-size: 12px; color: var(--color-muted); }
   .rail-fold > summary { cursor: pointer; }
   .rail-fold-run { display: block; padding: 2px 0 2px 12px; }
-  .tone-ok .dot { background: #34a853; }
-  .tone-run .dot { background: #4cc2ff; }
-  .tone-att .dot { background: #fbbc05; }
-  .tone-bad .dot { background: #ea4335; }
-  .tone-mute .dot { background: #949ba8; }
+  .tone-ok .dot { background: var(--pou-ok); }
+  .tone-run .dot { background: var(--pou-run); }
+  .tone-att .dot { background: var(--pou-attention); }
+  .tone-bad .dot { background: var(--pou-bad); }
+  .tone-mute .dot { background: var(--pou-neutral); }
   .pulse-run { animation: pou-pulse 1.6s ease-in-out infinite; }
   @media (prefers-reduced-motion: reduce) { .pulse-run { animation: none; } }
   @keyframes pou-pulse { 50% { opacity: .35; } }
@@ -115,8 +112,5 @@
   .copy-btn {
     @apply rounded border border-line px-1.5 text-[11px] text-muted hover:text-ink;
   }
-  .message-failed { color: #9b1c14; border-color: rgb(234 67 53 / .35); background: rgb(234 67 53 / .06); }
-  @media (prefers-color-scheme: dark) {
-    .message-failed { color: #f3c4c4; border-color: #3b1d1d; background: #0b0d11; }
-  }
+  .message-failed { color: var(--pou-bad-text); border-color: color-mix(in srgb, var(--pou-bad) 35%, transparent); background: color-mix(in srgb, var(--pou-bad) 6%, transparent); }
 }

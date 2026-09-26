@@ -3,14 +3,18 @@ package web
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io/fs"
 	"math"
 	"net/http"
+	"os"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/jalet/pulumi-operator-ui/internal/theme"
 )
 
 var (
@@ -174,17 +178,17 @@ func TestPaletteContrast(t *testing.T) {
 		{"light focus on panel", cssVar(t, light, "--pou-focus"), lightPanel, 3},
 		{"dark focus on page", cssVar(t, dark, "--pou-focus"), darkPage, 3},
 	}
-	for _, tone := range []string{"ok", "run", "att"} {
+	for _, tone := range []string{"ok", "run", "attention"} {
 		checks = append(checks, struct {
 			name   string
 			fg, bg string
 			min    float64
-		}{"light counter-" + tone, cssVar(t, light, "--pou-counter-"+tone), lightPanel, 4.5},
+		}{"light " + tone + "-text", cssVar(t, light, "--pou-"+tone+"-text"), lightPanel, 4.5},
 			struct {
 				name   string
 				fg, bg string
 				min    float64
-			}{"dark counter-" + tone, cssVar(t, dark, "--pou-counter-"+tone), darkPanel, 4.5})
+			}{"dark " + tone + "-text", cssVar(t, dark, "--pou-"+tone+"-text"), darkPanel, 4.5})
 	}
 	for _, c := range checks {
 		if got := contrast(t, c.fg, c.bg); got < c.min {
@@ -277,5 +281,46 @@ func TestFaviconHasTabSizesOnly(t *testing.T) {
 	}
 	if !slices.Equal(sizes, []int{16, 32, 48}) || len(b) > 20<<10 {
 		t.Errorf("sizes %v, %d bytes; want [16 32 48] and at most 20 KiB", sizes, len(b))
+	}
+}
+
+// Every color lives in the token blocks, so a theme can change all of them.
+func TestInputCSSColorsAreTokens(t *testing.T) {
+	b, err := os.ReadFile("../../web/styles/input.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, rest, ok := strings.Cut(string(b), "/* tokens:start */")
+	if !ok {
+		t.Fatal("input.css lacks /* tokens:start */")
+	}
+	_, after, ok := strings.Cut(rest, "/* tokens:end */")
+	if !ok {
+		t.Fatal("input.css lacks /* tokens:end */")
+	}
+	color := regexp.MustCompile(`#[0-9a-fA-F]{3,8}\b|rgba?\(`)
+	for _, part := range []string{before, after} {
+		if m := color.FindString(part); m != "" {
+			t.Errorf("input.css names a color outside the token blocks: %s", m)
+		}
+	}
+}
+
+// Every key a theme can set must have a default in both modes, or the override has nothing
+// to override and the default look depends on the theme.
+func TestThemeTokensHaveDefaults(t *testing.T) {
+	b, err := _static.ReadFile("static/app.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(b)
+	light := cssBlock(t, css, ":root{color-scheme", "}")
+	dark := cssBlock(t, css, "@media (prefers-color-scheme:dark){:root{", "}}")
+	for _, tok := range theme.Tokens {
+		cssVar(t, light, theme.Var(tok))
+		cssVar(t, dark, theme.Var(tok))
+	}
+	for i := 1; i <= theme.BrandBarLen; i++ {
+		cssVar(t, light, fmt.Sprintf("--pou-brand-%d", i))
 	}
 }
