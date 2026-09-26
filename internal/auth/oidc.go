@@ -13,6 +13,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -195,14 +196,19 @@ func (a *Authenticator) login(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		panic("invariant violated: marshal flow state: " + err.Error())
 	}
-	a.setCookie(w, flowCookieName, a.codec.Seal("flow", b), flowTTL)
+	a.setCookie(w, flowCookie(f.State), a.codec.Seal("flow", b), flowTTL)
 	http.Redirect(w, r, a.oauth.AuthCodeURL(f.State, oidc.Nonce(f.Nonce),
 		oauth2.S256ChallengeOption(f.Verifier)), http.StatusSeeOther)
 }
 
 func (a *Authenticator) callback(w http.ResponseWriter, r *http.Request) {
-	f, err := a.readFlow(r)
-	a.clearCookie(w, flowCookieName)
+	state := r.URL.Query().Get("state")
+	if !_state.MatchString(state) {
+		a.fail(w, r, &flowError{detail: "flow: invalid state", status: http.StatusBadRequest})
+		return
+	}
+	f, err := a.readFlow(r, flowCookie(state))
+	a.clearCookie(w, flowCookie(state))
 	if err != nil {
 		a.fail(w, r, &flowError{detail: "flow: " + err.Error(), status: http.StatusBadRequest})
 		return
@@ -344,8 +350,14 @@ func (a *Authenticator) session(r *http.Request) (Session, bool) {
 	return s, a.now().Before(s.ExpiresAt)
 }
 
-func (a *Authenticator) readFlow(r *http.Request) (flowState, error) {
-	c, err := r.Cookie(flowCookieName)
+// _state is what login issues: 32 random bytes, base64url without padding.
+var _state = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
+
+// flowCookie names one login's flow cookie, so logins in two tabs do not share one.
+func flowCookie(state string) string { return flowCookieName + "_" + state[:16] }
+
+func (a *Authenticator) readFlow(r *http.Request, name string) (flowState, error) {
+	c, err := r.Cookie(name)
 	if err != nil {
 		return flowState{}, errors.New("missing cookie")
 	}

@@ -262,8 +262,13 @@ func TestNonceMismatch(t *testing.T) {
 func TestIdPErrorParameter(t *testing.T) {
 	a := newApp(t, _viewer, nil)
 	nr := a.noRedirect()
-	a.get(t, nr, "/auth/login")
-	resp, body := a.get(t, nr, "/auth/callback?error=access_denied&state=x")
+	login, _ := a.get(t, nr, "/auth/login")
+	authz, err := url.Parse(login.Header.Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An IdP that refuses echoes the login's state with the error.
+	resp, body := a.get(t, nr, "/auth/callback?error=access_denied&state="+authz.Query().Get("state"))
 	if resp.StatusCode != http.StatusBadRequest || strings.Contains(body, "access_denied<") {
 		t.Fatalf("status = %d body = %q", resp.StatusCode, body)
 	}
@@ -342,7 +347,7 @@ func TestCookieAttributes(t *testing.T) {
 	a := newApp(t, _viewer, nil)
 	nr := a.noRedirect()
 	resp, _ := a.get(t, nr, "/auth/login")
-	flow := setCookie(t, resp, flowCookieName)
+	flow := setCookieWithPrefix(t, resp, flowCookieName+"_") // one per login, named by state
 	for _, attr := range []string{"Path=/", "HttpOnly", "Secure", "SameSite=Lax", "Max-Age=600"} {
 		if !strings.Contains(flow, attr) {
 			t.Errorf("flow cookie %q lacks %s", flow, attr)
@@ -379,6 +384,18 @@ func setCookie(t *testing.T, resp *http.Response, name string) string {
 		}
 	}
 	t.Fatalf("no Set-Cookie %s in %v", name, resp.Header.Values("Set-Cookie"))
+	return ""
+}
+
+// setCookieWithPrefix returns the first live Set-Cookie whose name starts with prefix.
+func setCookieWithPrefix(t *testing.T, resp *http.Response, prefix string) string {
+	t.Helper()
+	for _, h := range resp.Header.Values("Set-Cookie") {
+		if strings.HasPrefix(h, prefix) && !strings.Contains(h, "Max-Age=0") {
+			return h
+		}
+	}
+	t.Fatalf("no Set-Cookie %s* in %v", prefix, resp.Header.Values("Set-Cookie"))
 	return ""
 }
 
@@ -456,5 +473,35 @@ func TestLogoutAtIdP(t *testing.T) {
 	}
 	if a.sessionCookie(t) != nil {
 		t.Error("session cookie not cleared")
+	}
+}
+
+// Two tabs can sign in at the same time: each login has its own flow cookie.
+func TestParallelLogins(t *testing.T) {
+	a := newApp(t, _viewer, nil)
+	c := a.noRedirect()
+	start := func() string {
+		resp, _ := do(t, c, mustRequest(t, a.srv.URL+"/auth/login"))
+		return resp.Header.Get("Location") // the IdP's authorize URL
+	}
+	first, second := start(), start()
+	for _, authz := range []string{second, first} {
+		resp, _ := do(t, c, mustRequest(t, authz))
+		resp, _ = do(t, c, mustRequest(t, resp.Header.Get("Location"))) // our callback
+		if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/" {
+			t.Fatalf("callback status %d location %q, want 303 to /", resp.StatusCode,
+				resp.Header.Get("Location"))
+		}
+	}
+}
+
+func TestCallbackBadState(t *testing.T) {
+	a := newApp(t, _viewer, nil)
+	for _, state := range []string{"", "x", "../../etc", strings.Repeat("a", 200)} {
+		resp, _ := do(t, a.noRedirect(), mustRequest(t,
+			a.srv.URL+"/auth/callback?code=c&state="+url.QueryEscape(state)))
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("state %q: status %d, want 400", state, resp.StatusCode)
+		}
 	}
 }
