@@ -28,7 +28,7 @@ func TestEngineLinesWindow(t *testing.T) {
 	b.WriteString(kline(_t0.Add(2*time.Second), "pulumi", "    ~ a:b/c:D: (update)"))
 	b.WriteString(kline(_t0.Add(3*time.Second), "server", "up completed\t{\"result\": \"succeeded\"}"))
 	b.WriteString(kline(_t0.Add(4*time.Second), "pulumi", "next run"))
-	got, truncated, err := engineLines(strings.NewReader(b.String()), _t0.Add(-5*time.Second),
+	got, truncated, _, err := engineLines(strings.NewReader(b.String()), _t0.Add(-5*time.Second),
 		_t0, _t0.Add(time.Hour), logBytesMax)
 	if err != nil || truncated {
 		t.Fatalf("err=%v truncated=%v", err, truncated)
@@ -43,7 +43,7 @@ func TestEngineLinesStopsAtWindowEnd(t *testing.T) {
 	var b strings.Builder
 	b.WriteString(kline(_t0, "pulumi", "in"))
 	b.WriteString(kline(_t0.Add(time.Minute), "pulumi", "after"))
-	got, _, err := engineLines(strings.NewReader(b.String()), _t0.Add(-time.Second),
+	got, _, _, err := engineLines(strings.NewReader(b.String()), _t0.Add(-time.Second),
 		_t0, _t0.Add(time.Second), logBytesMax)
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +58,7 @@ func TestEngineLinesByteCap(t *testing.T) {
 	for range 100 {
 		b.WriteString(kline(_t0, "pulumi", strings.Repeat("x", 100)))
 	}
-	got, truncated, err := engineLines(strings.NewReader(b.String()), _t0.Add(-time.Second),
+	got, truncated, _, err := engineLines(strings.NewReader(b.String()), _t0.Add(-time.Second),
 		_t0, _t0.Add(time.Second), 1000)
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +69,7 @@ func TestEngineLinesByteCap(t *testing.T) {
 }
 
 func TestEngineLinesKeepsTabsInMessage(t *testing.T) {
-	got, _, err := engineLines(strings.NewReader(kline(_t0, "pulumi", "a\tb")),
+	got, _, _, err := engineLines(strings.NewReader(kline(_t0, "pulumi", "a\tb")),
 		_t0.Add(-time.Second), _t0, _t0.Add(time.Second), logBytesMax)
 	if err != nil || len(got) != 1 || got[0] != "a\tb" {
 		t.Fatalf("got %q err %v", got, err)
@@ -107,7 +107,7 @@ func TestEngineLinesRealUpLog(t *testing.T) {
 	defer func() { _ = f.Close() }()
 	start := time.Date(2026, 9, 25, 14, 47, 59, 0, time.UTC)
 	end := time.Date(2026, 9, 25, 14, 48, 20, 0, time.UTC)
-	lines, _, err := engineLines(f, start.Add(-5*time.Second), start, end.Add(5*time.Second),
+	lines, _, _, err := engineLines(f, start.Add(-5*time.Second), start, end.Add(5*time.Second),
 		logBytesMax)
 	if err != nil {
 		t.Fatal(err)
@@ -126,7 +126,7 @@ func TestEngineLinesDropsPreviousRunTail(t *testing.T) {
 	b.WriteString(kline(_t0.Add(-2*time.Second), "server", "up completed\t{\"result\": \"succeeded\"}"))
 	b.WriteString(kline(_t0.Add(time.Second), "pulumi", "this run"))
 	b.WriteString(kline(_t0.Add(2*time.Second), "server", "preview completed\t{}"))
-	got, _, err := engineLines(strings.NewReader(b.String()), _t0.Add(-5*time.Second), _t0,
+	got, _, _, err := engineLines(strings.NewReader(b.String()), _t0.Add(-5*time.Second), _t0,
 		_t0.Add(time.Minute), logBytesMax)
 	if err != nil {
 		t.Fatal(err)
@@ -142,12 +142,31 @@ func TestEngineLinesOverlongLineIsTruncation(t *testing.T) {
 	var b strings.Builder
 	b.WriteString(kline(_t0, "pulumi", "Updating (prod):"))
 	b.WriteString(kline(_t0, "pulumi", strings.Repeat("x", 2<<20)))
-	got, truncated, err := engineLines(strings.NewReader(b.String()), _t0.Add(-time.Second), _t0,
+	got, truncated, _, err := engineLines(strings.NewReader(b.String()), _t0.Add(-time.Second), _t0,
 		_t0.Add(time.Second), 8<<20)
 	if err != nil || !truncated {
 		t.Fatalf("err=%v truncated=%v, want no error and truncation", err, truncated)
 	}
 	if diff := cmp.Diff([]string{"Updating (prod):"}, got); diff != "" {
 		t.Fatalf("(-want +got):\n%s", diff)
+	}
+}
+
+// complete tells a finished slice (completed line or a line past the window) from EOF.
+func TestEngineLinesComplete(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		log  string
+		want bool
+	}{
+		{"completed line", kline(_t0, "pulumi", "a") + kline(_t0.Add(time.Second), "server", "up completed"), true},
+		{"past the window", kline(_t0, "pulumi", "a") + kline(_t0.Add(time.Hour), "pulumi", "next"), true},
+		{"eof", kline(_t0, "pulumi", "a"), false},
+	} {
+		_, _, complete, err := engineLines(strings.NewReader(tc.log), _t0.Add(-time.Second), _t0,
+			_t0.Add(time.Minute), 1<<20)
+		if err != nil || complete != tc.want {
+			t.Errorf("%s: complete %v err %v, want %v", tc.name, complete, err, tc.want)
+		}
 	}
 }

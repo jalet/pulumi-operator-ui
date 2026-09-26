@@ -64,7 +64,24 @@ type Capturer struct {
 type retryState struct {
 	next  time.Time
 	delay time.Duration
+	ended time.Time // the run's end, which bounds how long a retry can matter
 }
+
+// sweep forgets retries for runs that can no longer be pending (saved as unavailable after
+// the retry window, or pruned).
+func (c *Capturer) sweep(now time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for id, rs := range c.retry {
+		if now.Sub(rs.ended) > retryWindow+retryCap {
+			delete(c.retry, id)
+		}
+	}
+}
+
+// errNotFlushed marks a read that ended before the run's completed line: its tail may still
+// be on its way to the log, so it is retried like a read error until the retry window ends.
+var errNotFlushed = errors.New("log tail not flushed yet")
 
 // New returns a capturer; it touches nothing until Run.
 func New(o Options) *Capturer {
@@ -93,6 +110,7 @@ func (c *Capturer) Run(ctx context.Context) error {
 }
 
 func (c *Capturer) tick(ctx context.Context) {
+	c.sweep(c.o.Now())
 	jobs, err := c.o.Store.PendingLogs(ctx, jobsPerTick)
 	if err != nil {
 		c.o.Log.Error().Err(err).Msg("logs: pending")
@@ -121,7 +139,10 @@ func (c *Capturer) capture(ctx context.Context, j store.LogJob) {
 	if waiting && now.Before(rs.next) {
 		return
 	}
-	lines, truncated, err := c.read(ctx, j)
+	lines, truncated, complete, err := c.read(ctx, j)
+	if err == nil && !complete && now.Sub(j.EndedAt) <= retryWindow {
+		err = errNotFlushed
+	}
 	switch {
 	case errors.Is(err, ErrForbidden):
 		c.forbidden.Do(func() {
@@ -135,7 +156,7 @@ func (c *Capturer) capture(ctx context.Context, j store.LogJob) {
 			c.save(ctx, j, store.LogStatusUnavailable, Result{}, "unavailable")
 			return
 		}
-		next := retryState{delay: retryFirst}
+		next := retryState{delay: retryFirst, ended: j.EndedAt}
 		if waiting {
 			next.delay = min(rs.delay*2, retryCap)
 		}
@@ -163,23 +184,31 @@ func (c *Capturer) capture(ctx context.Context, j store.LogJob) {
 	}
 }
 
-func (c *Capturer) read(ctx context.Context, j store.LogJob) ([]string, bool, error) {
+func (c *Capturer) read(ctx context.Context, j store.LogJob) ([]string, bool, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, captureTimeout)
 	defer cancel()
+	// The pad absorbs clock skew between the operator and the kubelet, but never reaches into
+	// the previous or next run on the same workspace.
 	from, to := j.StartedAt.Add(-windowPad), j.EndedAt.Add(windowPad)
+	if j.PrevEnded != nil && j.PrevEnded.After(from) {
+		from = *j.PrevEnded
+	}
+	if j.NextStarted != nil && j.NextStarted.Before(to) {
+		to = *j.NextStarted
+	}
 	rc, err := c.o.Source.Stream(ctx, j.Namespace, j.StackName+"-workspace-0", from)
 	if err != nil {
-		return nil, false, err
+		return nil, false, false, err
 	}
 	defer func() { _ = rc.Close() }() // read-only stream
-	lines, truncated, err := engineLines(rc, from, j.StartedAt, to, logBytesMax)
+	lines, truncated, complete, err := engineLines(rc, from, j.StartedAt, to, logBytesMax)
 	if err != nil {
-		return nil, false, err
+		return nil, false, false, err
 	}
 	if len(lines) == 0 {
-		return nil, false, ErrGone
+		return nil, false, false, ErrGone
 	}
-	return lines, truncated, nil
+	return lines, truncated, complete, nil
 }
 
 func (c *Capturer) save(ctx context.Context, j store.LogJob, status string, res Result,

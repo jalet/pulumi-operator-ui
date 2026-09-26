@@ -162,3 +162,25 @@ func TestRunPendingWhenTimesArriveSeparately(t *testing.T) {
 		t.Fatalf("log_status = %q, want pending", got.LogStatus)
 	}
 }
+
+func TestPendingLogsCarryNeighbours(t *testing.T) {
+	s, _ := newTestStore(t)
+	prev, cur, next := finished("u1", _t0), finished("u2", _t0.Add(time.Minute)),
+		finished("u3", _t0.Add(2*time.Minute))
+	for _, r := range []Run{prev, cur, next} {
+		mustUpsert(t, s, r)
+	}
+	jobs, err := s.PendingLogs(t.Context(), 10)
+	must(t, err)
+	if len(jobs) != 3 {
+		t.Fatalf("jobs = %d, want 3", len(jobs))
+	}
+	j := jobs[1]
+	if j.PrevEnded == nil || !j.PrevEnded.Equal(*prev.EndedAt) || j.NextStarted == nil ||
+		!j.NextStarted.Equal(*next.StartedAt) {
+		t.Fatalf("job %+v, want the neighbours' end and start", j)
+	}
+	if jobs[0].PrevEnded != nil || jobs[2].NextStarted != nil {
+		t.Fatalf("first job %+v last %+v, want no neighbour on the open side", jobs[0], jobs[2])
+	}
+}

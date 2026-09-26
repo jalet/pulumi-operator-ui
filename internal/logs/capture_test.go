@@ -85,6 +85,7 @@ func TestCaptureStoresResult(t *testing.T) {
 	b.WriteString(kline(_t0.Add(-20*time.Second), "pulumi", "      ~ k: 1 => 2"))
 	b.WriteString(kline(_t0.Add(-19*time.Second), "pulumi", "Resources:"))
 	b.WriteString(kline(_t0.Add(-19*time.Second), "pulumi", "    ~ 1 updated"))
+	b.WriteString(kline(_t0, "server", "up completed"))
 	st := &fakeStore{jobs: []store.LogJob{job(1, _t0)}, saves: map[int64]saved{}}
 	src := &fakeSource{body: map[string]string{"prod-workspace-0": b.String()}}
 	newCapturer(st, src, _t0.Add(time.Second)).tick(t.Context())
@@ -190,5 +191,54 @@ func TestCaptureMarksReadCapTruncation(t *testing.T) {
 	if got.status != store.LogStatusCaptured || !got.truncated || len(got.resources) != 1 ||
 		!got.resources[0].Truncated {
 		t.Fatalf("saved %+v, want captured, truncated, last resource marked", got)
+	}
+}
+
+// Output stamped before the previous run on the workspace ended is not this run's.
+func TestCaptureStartsAfterPreviousRun(t *testing.T) {
+	j := job(1, _t0)
+	prevEnd := j.StartedAt.Add(-time.Second)
+	j.PrevEnded = &prevEnd
+	var b strings.Builder
+	b.WriteString(kline(j.StartedAt.Add(-3*time.Second), "pulumi", "    + a:b/c:D: (create)"))
+	b.WriteString(kline(j.StartedAt.Add(-3*time.Second), "pulumi", "        [urn=urn:pulumi:prod::p::a:b/c:D::previous]"))
+	b.WriteString(kline(j.StartedAt.Add(time.Second), "pulumi", "    ~ a:b/c:D: (update)"))
+	b.WriteString(kline(j.StartedAt.Add(time.Second), "pulumi", "        [urn=urn:pulumi:prod::p::a:b/c:D::mine]"))
+	b.WriteString(kline(j.StartedAt.Add(2*time.Second), "pulumi", "Resources:"))
+	b.WriteString(kline(j.StartedAt.Add(2*time.Second), "pulumi", "    ~ 1 updated"))
+	b.WriteString(kline(j.EndedAt, "server", "up completed"))
+	st := &fakeStore{jobs: []store.LogJob{j}, saves: map[int64]saved{}}
+	src := &fakeSource{body: map[string]string{"prod-workspace-0": b.String()}}
+	newCapturer(st, src, j.EndedAt.Add(time.Second)).tick(t.Context())
+	got := st.saves[1]
+	if got.status != store.LogStatusCaptured || len(got.resources) != 1 || got.resources[0].Name != "mine" {
+		t.Fatalf("saved %+v, want only this run's resource", got)
+	}
+}
+
+// Until the completed line is in the log, its tail may still be on its way.
+func TestCaptureWaitsForCompletedLine(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(kline(_t0.Add(-20*time.Second), "pulumi", "Resources:"))
+	b.WriteString(kline(_t0.Add(-20*time.Second), "pulumi", "    1 unchanged"))
+	st := &fakeStore{jobs: []store.LogJob{job(1, _t0)}, saves: map[int64]saved{}}
+	src := &fakeSource{body: map[string]string{"prod-workspace-0": b.String()}}
+	newCapturer(st, src, _t0.Add(10*time.Second)).tick(t.Context())
+	if _, ok := st.saves[1]; ok {
+		t.Fatal("saved before the completed line")
+	}
+	newCapturer(st, src, _t0.Add(11*time.Minute)).tick(t.Context())
+	if s, ok := st.saves[1]; !ok || s.status != store.LogStatusCaptured {
+		t.Fatalf("after the retry window: %+v, want captured", st.saves[1])
+	}
+}
+
+func TestSweepDropsStaleRetries(t *testing.T) {
+	c := newCapturer(&fakeStore{saves: map[int64]saved{}}, &fakeSource{}, _t0)
+	c.retry[9] = retryState{next: _t0, delay: retryFirst, ended: _t0}
+	c.retry[10] = retryState{next: _t0, delay: retryFirst, ended: _t0.Add(time.Minute)}
+	c.sweep(_t0.Add(retryWindow + retryCap + time.Second))
+	if _, ok := c.retry[9]; ok || len(c.retry) != 1 {
+		t.Fatalf("retry = %v, want only the recent entry", c.retry)
 	}
 }

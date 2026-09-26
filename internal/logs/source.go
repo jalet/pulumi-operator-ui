@@ -66,7 +66,11 @@ var _completed = regexp.MustCompile(`^(up|preview|refresh|destroy) completed$`)
 // started at start. It stops at the run's "<op> completed" line, the first line after to, or
 // bytesMax bytes read. A completed line stamped before start ends the previous run on the
 // same workspace, so anything collected before it is dropped.
-func engineLines(r io.Reader, from, start, to time.Time, bytesMax int) ([]string, bool, error) {
+//
+// complete reports that the run's slice of the log is all there: its completed line, a line
+// past to, or the byte cap was reached. At EOF without either, the tail may not be flushed.
+func engineLines(r io.Reader, from, start, to time.Time, bytesMax int) (lines []string,
+	truncated, complete bool, err error) {
 	var out []string
 	read := 0
 	sc := bufio.NewScanner(r)
@@ -75,7 +79,7 @@ func engineLines(r io.Reader, from, start, to time.Time, bytesMax int) ([]string
 		line := sc.Text()
 		read += len(line) + 1
 		if read > bytesMax {
-			return out, true, nil
+			return out, true, true, nil
 		}
 		stamp, rest, ok := strings.Cut(line, " ")
 		if !ok {
@@ -86,7 +90,7 @@ func engineLines(r io.Reader, from, start, to time.Time, bytesMax int) ([]string
 			continue
 		}
 		if at.After(to) {
-			return out, false, nil
+			return out, false, true, nil
 		}
 		// rest: <agent time>\t<LEVEL>\t<logger>\t<message>[\t<fields>]
 		parts := strings.SplitN(rest, "\t", 4)
@@ -102,15 +106,15 @@ func engineLines(r io.Reader, from, start, to time.Time, bytesMax int) ([]string
 					out = out[:0]
 					continue
 				}
-				return out, false, nil
+				return out, false, true, nil
 			}
 		}
 	}
 	if err := sc.Err(); err != nil {
 		if errors.Is(err, bufio.ErrTooLong) {
-			return out, true, nil // one huge line: keep what came before it
+			return out, true, true, nil // one huge line: keep what came before it
 		}
-		return out, false, fmt.Errorf("read log: %w", err)
+		return out, false, false, fmt.Errorf("read log: %w", err)
 	}
-	return out, false, nil
+	return out, false, false, nil
 }

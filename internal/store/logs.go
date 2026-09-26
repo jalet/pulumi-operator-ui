@@ -16,20 +16,29 @@ type LogJob struct {
 	RunID                int64
 	Namespace, StackName string
 	StartedAt, EndedAt   time.Time
+	// The neighbouring runs on the same workspace, which bound this run's slice of the log.
+	PrevEnded, NextStarted *time.Time
 }
 
 // PendingLogs returns up to limit runs waiting for log capture, oldest end first.
 func (s *Store) PendingLogs(ctx context.Context, limit int) ([]LogJob, error) {
 	assert(limit > 0, "pending logs limit")
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, namespace, stack_name, started_at, ended_at FROM runs
-		WHERE log_status = 'pending' ORDER BY ended_at, id LIMIT $1`, limit)
+		SELECT r.id, r.namespace, r.stack_name, r.started_at, r.ended_at,
+		       (SELECT max(p.ended_at) FROM runs p
+		        WHERE p.namespace = r.namespace AND p.stack_name = r.stack_name
+		          AND p.id <> r.id AND p.ended_at <= r.started_at),
+		       (SELECT min(n.started_at) FROM runs n
+		        WHERE n.namespace = r.namespace AND n.stack_name = r.stack_name
+		          AND n.id <> r.id AND n.started_at >= r.ended_at)
+		FROM runs r WHERE r.log_status = 'pending' ORDER BY r.ended_at, r.id LIMIT $1`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("pending logs: %w", err)
 	}
 	jobs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (LogJob, error) {
 		var j LogJob
-		return j, r.Scan(&j.RunID, &j.Namespace, &j.StackName, &j.StartedAt, &j.EndedAt)
+		return j, r.Scan(&j.RunID, &j.Namespace, &j.StackName, &j.StartedAt, &j.EndedAt,
+			&j.PrevEnded, &j.NextStarted)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pending logs: %w", err)
