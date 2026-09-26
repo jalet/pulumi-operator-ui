@@ -1,5 +1,7 @@
-@import "tailwindcss";
-@source "../../internal/web/templates";
+/* Scan only the web package (templates and the Go code that picks classes), not the whole
+   repository: words in docs would otherwise become utilities in app.css. */
+@import "tailwindcss" source(none);
+@source "../../internal/web";
 
 @font-face { font-family: "Geist"; font-weight: 400; font-display: swap;
   src: url("/static/fonts/geist-sans-400.woff2") format("woff2"); }

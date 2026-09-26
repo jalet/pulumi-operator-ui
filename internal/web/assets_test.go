@@ -481,3 +481,17 @@ func TestStaticFilesRevalidate(t *testing.T) {
 		t.Fatalf("revalidation status %d, want 304", again.StatusCode)
 	}
 }
+
+// Tailwind scans only the web package: prose elsewhere (docs, comments) would otherwise turn
+// words like "relative" or "fixed" into utilities in app.css.
+func TestTailwindScansOnlyTheWebPackage(t *testing.T) {
+	b, err := os.ReadFile("../../web/styles/input.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(b)
+	if !strings.Contains(css, `@import "tailwindcss" source(none);`) ||
+		!strings.Contains(css, `@source "../../internal/web";`) {
+		t.Error("input.css lets Tailwind scan the whole repository")
+	}
+}
