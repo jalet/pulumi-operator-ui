@@ -154,8 +154,8 @@ long as the Stack still reports it: it is that Stack's last run.
   the metrics scraper and egress to the Kubernetes API, the database, the IdP and (when
   enabled) S3. Its default selectors and CIDRs are open; narrow them for your cluster.
 - **Supply chain.** Release images and charts are signed with cosign (keyless, GitHub
-  Actions); CI actions are pinned by commit; Dependabot and Renovate keep dependencies and the
-  base image current.
+  Actions); CI actions are pinned by commit; Renovate keeps Go modules, actions, tools and the
+  base image current, and opens PRs for dependencies with known vulnerabilities (OSV).
 
 ## Configuration
 

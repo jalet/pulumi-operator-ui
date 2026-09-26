@@ -626,7 +626,7 @@ func TestLogDiffsOff(t *testing.T) {
 	}
 }
 
-// Renovate keeps the digest-pinned base image current (Dependabot cannot parse .ko.yaml):
+// Renovate keeps the digest-pinned base image current (no built-in manager reads .ko.yaml):
 // its regex must match the pin and capture the image, tag and digest.
 func TestRenovateTracksKoBaseImage(t *testing.T) {
 	b, err := os.ReadFile("../../renovate.json")

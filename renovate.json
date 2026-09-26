@@ -1,12 +1,13 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
-  "description": "Dependabot updates Go modules and GitHub Actions; Renovate only keeps the digest-pinned ko base image current.",
-  "enabledManagers": ["custom.regex"],
+  "description": "Renovate keeps Go modules, GitHub Actions, mise tools and the digest-pinned ko base image current.",
+  "extends": ["config:recommended", ":automergeMinor", ":automergeDigest"],
+  "postUpdateOptions": ["gomodTidy"],
+  "osvVulnerabilityAlerts": true,
   "customManagers": [
     {
       "customType": "regex",
-      "description": "The distroless base image in .ko.yaml",
+      "description": "The distroless base image in .ko.yaml, which no built-in manager reads",
       "managerFilePatterns": ["/^\\.ko\\.yaml$/"],
       "matchStrings": [
         "defaultBaseImage: (?<depName>[^:@\\s]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
@@ -18,8 +19,7 @@
     {
       "matchManagers": ["custom.regex"],
       "matchUpdateTypes": ["digest"],
-      "commitMessageTopic": "the distroless base image",
-      "schedule": ["before 6am on monday"]
+      "commitMessageTopic": "the distroless base image"
     }
   ]
 }
