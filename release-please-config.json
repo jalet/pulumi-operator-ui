@@ -17,8 +17,6 @@
   ],
   "packages": {
     ".": {
-      "release-as": "0.1.0",
-      "skip-changelog": true,
       "extra-files": [
         { "type": "yaml", "path": "charts/pulumi-operator-ui/Chart.yaml", "jsonpath": "$.version" },
         { "type": "yaml", "path": "charts/pulumi-operator-ui/Chart.yaml", "jsonpath": "$.appVersion" }
