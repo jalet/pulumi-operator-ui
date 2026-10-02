@@ -3,7 +3,7 @@ go = "1.27.1"
 golangci-lint = "2.14.0"
 ko = "0.19.1"
 helm = "4.3.0"
-"go:golang.org/x/vuln/cmd/govulncheck" = "1.5.0"
+"go:golang.org/x/vuln/cmd/govulncheck" = "v1.8.0"
 "go:sigs.k8s.io/controller-runtime/tools/setup-envtest" = "release-0.24"
 "github:tailwindlabs/tailwindcss" = { version = "4.3.3", bin = "tailwindcss" }
 
