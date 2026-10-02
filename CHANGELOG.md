@@ -3,6 +3,15 @@
 All notable changes are recorded here. The project follows
 [Semantic Versioning](https://semver.org).
 
+## [0.2.1](https://github.com/jalet/pulumi-operator-ui/compare/v0.2.0...v0.2.1) (2026-10-02)
+
+
+### Bug fixes
+
+* **deps:** update module github.com/aws/aws-sdk-go-v2/service/s3 to v1.114.0 ([#17](https://github.com/jalet/pulumi-operator-ui/issues/17)) ([c3feb12](https://github.com/jalet/pulumi-operator-ui/commit/c3feb120131d1b23e4f423ed272d6bbd939c9f42))
+* **deps:** update module github.com/failsafe-go/failsafe-go to v0.9.8 ([#15](https://github.com/jalet/pulumi-operator-ui/issues/15)) ([708856f](https://github.com/jalet/pulumi-operator-ui/commit/708856fcf68d43c0a3af3b6a1c141555a3565d2b))
+* **deps:** update module sigs.k8s.io/controller-runtime to v0.25.2 ([#18](https://github.com/jalet/pulumi-operator-ui/issues/18)) ([1bbb4ab](https://github.com/jalet/pulumi-operator-ui/commit/1bbb4abd29484814c3afd33e35ffa113fb06a8ee))
+
 ## [0.2.0](https://github.com/jalet/pulumi-operator-ui/compare/v0.1.0...v0.2.0) (2026-09-26)
 
 
