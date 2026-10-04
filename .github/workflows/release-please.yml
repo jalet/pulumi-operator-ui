@@ -54,7 +54,7 @@ jobs:
         with:
           ref: ${{ needs.release-please.outputs.tag }}
           persist-credentials: false
-      - uses: jdx/mise-action@94c60b39bc2d90ab2f9bab27f38d3cc4812c1834 # v5.1.0
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
       # Reuse what CI on main cached (caches are per branch, and this runs in main's context).
       # The paths must match CI's exactly: they are part of the cache entry's version.
       # Restore only: a release build never writes the cache, and pull request caches are in
