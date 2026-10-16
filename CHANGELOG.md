@@ -3,6 +3,14 @@
 All notable changes are recorded here. The project follows
 [Semantic Versioning](https://semver.org).
 
+## [0.2.3](https://github.com/jalet/pulumi-operator-ui/compare/v0.2.2...v0.2.3) (2026-10-16)
+
+
+### Bug fixes
+
+* **deps:** update module github.com/go-jose/go-jose/v4 to v4.1.6 ([#39](https://github.com/jalet/pulumi-operator-ui/issues/39)) ([f03933d](https://github.com/jalet/pulumi-operator-ui/commit/f03933d9e94fe4b54ecda1e81bcad4a18bbbb78e))
+* **deps:** update module github.com/pressly/goose/v3 to v3.29.0 ([#35](https://github.com/jalet/pulumi-operator-ui/issues/35)) ([2d80fb6](https://github.com/jalet/pulumi-operator-ui/commit/2d80fb6e288d4c69b84536608c1b2855f7e848bf))
+
 ## [0.2.2](https://github.com/jalet/pulumi-operator-ui/compare/v0.2.1...v0.2.2) (2026-10-10)
 
 
