@@ -3,6 +3,18 @@
 All notable changes are recorded here. The project follows
 [Semantic Versioning](https://semver.org).
 
+## [0.2.3](https://github.com/jalet/pulumi-operator-ui/compare/v0.2.2...v0.2.3) (2026-10-24)
+
+
+### Bug fixes
+
+* **deps:** update aws-sdk-go-v2 monorepo ([#49](https://github.com/jalet/pulumi-operator-ui/issues/49)) ([194d3c2](https://github.com/jalet/pulumi-operator-ui/commit/194d3c236f9fa0ff29208c4dccb727236a7aabee))
+* **deps:** update module github.com/aws/aws-sdk-go-v2 to v1.47.4 ([#48](https://github.com/jalet/pulumi-operator-ui/issues/48)) ([c89291f](https://github.com/jalet/pulumi-operator-ui/commit/c89291fe0d0139b9cb4e6b334db5718a055d27f7))
+* **deps:** update module github.com/aws/aws-sdk-go-v2/service/s3 to v1.114.4 ([#47](https://github.com/jalet/pulumi-operator-ui/issues/47)) ([588bdd2](https://github.com/jalet/pulumi-operator-ui/commit/588bdd269067bec3d95de7b0d8c6d52cf55a0a86))
+* **deps:** update module github.com/aws/smithy-go to v1.28.6 ([#46](https://github.com/jalet/pulumi-operator-ui/issues/46)) ([829e9cb](https://github.com/jalet/pulumi-operator-ui/commit/829e9cb9b2907d2a8cf5607b447298008433cd72))
+* **deps:** update module github.com/go-jose/go-jose/v4 to v4.1.6 ([#39](https://github.com/jalet/pulumi-operator-ui/issues/39)) ([f03933d](https://github.com/jalet/pulumi-operator-ui/commit/f03933d9e94fe4b54ecda1e81bcad4a18bbbb78e))
+* **deps:** update module github.com/pressly/goose/v3 to v3.29.0 ([#35](https://github.com/jalet/pulumi-operator-ui/issues/35)) ([2d80fb6](https://github.com/jalet/pulumi-operator-ui/commit/2d80fb6e288d4c69b84536608c1b2855f7e848bf))
+
 ## [0.2.2](https://github.com/jalet/pulumi-operator-ui/compare/v0.2.1...v0.2.2) (2026-10-10)
 
 
