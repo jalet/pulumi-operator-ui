@@ -13,7 +13,7 @@ require (
 	github.com/go-logr/logr v1.4.4
 	github.com/go-logr/zerologr v1.2.3
 	github.com/google/go-cmp v0.7.0
-	github.com/jackc/pgx/v5 v5.12.0
+	github.com/jackc/pgx/v5 v5.13.0
 	github.com/pressly/goose/v3 v3.30.0
 	github.com/prometheus/client_golang v1.25.0
 	github.com/rs/zerolog v1.35.1
