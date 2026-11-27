@@ -3,7 +3,7 @@ module github.com/jalet/pulumi-operator-ui
 go 1.26.7
 
 require (
-	github.com/aws/aws-sdk-go-v2 v1.48.1
+	github.com/aws/aws-sdk-go-v2 v1.48.2
 	github.com/aws/aws-sdk-go-v2/config v1.33.22
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.116.1
 	github.com/aws/smithy-go v1.28.11
